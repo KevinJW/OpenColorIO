@@ -591,6 +591,7 @@ int main(int argc, const char **argv)
 
         std::string cacheID;
         bool isArchivable = false;
+        const bool minimal = false;
         try
         {
             LogGuard logGuard;
@@ -599,7 +600,7 @@ int main(int argc, const char **argv)
             std::cout << logGuard.output();
             
             cacheID = config->getCacheID();
-            isArchivable = config->isArchivable();
+            isArchivable = config->isArchivable(minimal);
 
             // Passed if there are no Error level logs.
             StringUtils::StringVec svec = StringUtils::SplitByLines(logGuard.output());
