@@ -764,7 +764,7 @@ jobs:
           - build: 3
             build-type: Release
             build-shared: 'OFF'
-            build-docs: 'ON'
+            build-docs: 'OFF'
             build-openfx: 'OFF'
             use-simd: 'ON'
             use-oiio: 'OFF'
@@ -790,6 +790,8 @@ jobs:
             cxx-standard: 17
             python-version: '3.9'
     steps:
+      - uses: humbletim/vsdevenv-shell@v2
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -817,7 +819,6 @@ jobs:
                 -DCMAKE_INSTALL_PREFIX=../_install \
                 -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} \
                 -DCMAKE_CXX_STANDARD=${{ matrix.cxx-standard }} \
-                -DCMAKE_GENERATOR_PLATFORM=x64 \
                 -DBUILD_SHARED_LIBS=${{ matrix.build-shared }} \
                 -DOCIO_BUILD_DOCS=${{ matrix.build-docs }} \
                 -DOCIO_BUILD_OPENFX=${{ matrix.build-openfx }} \
@@ -826,8 +827,9 @@ jobs:
                 -DOCIO_USE_OIIO_FOR_APPS=${{ matrix.use-oiio }} \
                 -DOCIO_INSTALL_EXT_PACKAGES=ALL \
                 -DOCIO_WARNING_AS_ERROR=ON \
-                -DPython_EXECUTABLE=$(which python)
-        shell: bash
+                -DPython_EXECUTABLE=$(which python) \
+                -G Ninja
+        shell: vsdevenv x64 bash {0}
         working-directory: _build
       - name: Build
         run: |
@@ -836,7 +838,7 @@ jobs:
                 --config ${{ matrix.build-type }} \
                 --parallel
           echo "ocio_build_path=$(pwd)" >> $GITHUB_ENV
-        shell: bash
+        shell: vsdevenv x64 bash {0}
         working-directory: _build
       - name: Test
         run: ctest -V -C ${{ matrix.build-type }}
