@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <iterator>
 #include <sstream>
+#include <string>
 
 #include <OpenColorIO/OpenColorIO.h>
 
@@ -71,7 +72,7 @@ bool IsCombineEnabled(OpData::Type type, OptimizationFlags flags)
 
 constexpr int MAX_OPTIMIZATION_PASSES = 80;
 
-int RemoveNoOpTypes(OpRcPtrVec & opVec)
+int RemoveNoOpTypes(OpRcPtrVec & opVec, [[maybe_unused]] OptimizationFlags flags)
 {
     int count = 0;
 
@@ -94,8 +95,15 @@ int RemoveNoOpTypes(OpRcPtrVec & opVec)
 }
 
 // Ops are preserved, dynamic properties are made non-dynamic.
-void RemoveDynamicProperties(OpRcPtrVec & opVec)
+int RemoveDynamicProperties(OpRcPtrVec & opVec, OptimizationFlags oFlags)
 {
+    int count = 0;
+    const auto removeDynamic = HasFlag(oFlags, OPTIMIZATION_NO_DYNAMIC_PROPERTIES);
+    if (!removeDynamic)
+    {
+        return count;
+    }
+
     const size_t nbOps = opVec.size();
     for (size_t i = 0; i < nbOps; ++i)
     {
@@ -106,13 +114,21 @@ void RemoveDynamicProperties(OpRcPtrVec & opVec)
             auto replacedBy = op->clone();
             replacedBy->removeDynamicProperties();
             opVec[i] = replacedBy;
+            ++count;
         }
     }
+    return count;
 }
 
-int RemoveNoOps(OpRcPtrVec & opVec)
+int RemoveNoOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
 {
     int count = 0;
+    const bool optimizeIdentity = HasFlag(oFlags, OPTIMIZATION_IDENTITY);
+    if (!optimizeIdentity)
+    {
+        return count;
+    }
+
     OpRcPtrVec::const_iterator iter = opVec.begin();
     while (iter != opVec.end())
     {
@@ -140,9 +156,15 @@ void FinalizeOps(OpRcPtrVec & opVec)
 
 // Some rather complex ops can get replaced based on their data by simpler ops.
 // For instance CDL that does not use power will get replaced.
-int ReplaceOps(OpRcPtrVec & opVec)
+int ReplaceOps(OpRcPtrVec & opVec, [[maybe_unused]] OptimizationFlags oFlags)
 {
     int count = 0;
+    const bool replaceOps = HasFlag(oFlags, OPTIMIZATION_SIMPLIFY_OPS);
+    if (!replaceOps)
+    {
+        return count;
+    }
+
     int firstindex = 0; // this must be a signed int
 
     OpRcPtrVec tmpops;
@@ -181,24 +203,26 @@ int ReplaceIdentityOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
     // Remove identity gamma ops (handled separately to give control over negative
     // alpha clamping).
     const bool optIdGamma = HasFlag(oFlags, OPTIMIZATION_IDENTITY_GAMMA);
-    if (optIdentity || optIdGamma)
+    if (!optIdentity && !optIdGamma)
     {
-        const size_t nbOps = opVec.size();
-        for (size_t i = 0; i < nbOps; ++i)
+        return count;
+    }
+
+    const size_t nbOps = opVec.size();
+    for (size_t i = 0; i < nbOps; ++i)
+    {
+        ConstOpRcPtr op = opVec[i];
+        const auto type = op->data()->getType();
+        if (type != OpData::RangeType && // Do not replace a range identity.
+            ((type == OpData::GammaType && optIdGamma) ||
+                (type != OpData::GammaType && optIdentity)) &&
+            op->isIdentity())
         {
-            ConstOpRcPtr op = opVec[i];
-            const auto type = op->data()->getType();
-            if (type != OpData::RangeType && // Do not replace a range identity.
-                ((type == OpData::GammaType && optIdGamma) ||
-                 (type != OpData::GammaType && optIdentity)) &&
-                op->isIdentity())
-            {
-                // Optimization flag is tested before.
-                auto replacedBy = op->getIdentityReplacement();
-                replacedBy->finalize();
-                opVec[i] = replacedBy;
-                ++count;
-            }
+            // Optimization flag is tested before.
+            auto replacedBy = op->getIdentityReplacement();
+            replacedBy->finalize();
+            opVec[i] = replacedBy;
+            ++count;
         }
     }
     return count;
@@ -366,9 +390,14 @@ int CombineOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
 // LUT is used and so this is quite accurate even for scene-linear values, but for Lut3D the baked
 // version is more of an approximation. The default optimization level uses the FAST method since
 // it is the only one available on both CPU and GPU.
-int ReplaceInverseLuts(OpRcPtrVec & opVec)
+int ReplaceInverseLuts(OpRcPtrVec & opVec, OptimizationFlags oFlags)
 {
     int count = 0;
+    const bool fastLut = HasFlag(oFlags, OPTIMIZATION_LUT_INV_FAST);
+    if (!fastLut)
+    {
+        return count;
+    }
 
     const size_t nbOps = opVec.size();
     for (size_t i = 0; i < nbOps; ++i)
@@ -404,7 +433,6 @@ int ReplaceInverseLuts(OpRcPtrVec & opVec)
         }
     }
     return count;
-
 }
 
 int RemoveLeadingClampIdentity(OpRcPtrVec & opVec)
@@ -417,7 +445,7 @@ int RemoveLeadingClampIdentity(OpRcPtrVec & opVec)
         auto oData = o->data();
         if (oData->getType() == OpData::RangeType && oData->isIdentity())
         {
-            iter++;
+            ++iter;
             ++count;
         }
         else
@@ -593,6 +621,20 @@ void OptimizeSeparablePrefix(OpRcPtrVec & ops, BitDepth in)
 
     ops.insert(ops.begin(), lutOps.begin(), lutOps.end());
 }
+
+int PerformOptimisation(int (*Operation)(OpRcPtrVec &, OptimizationFlags), OpRcPtrVec & opVec, OptimizationFlags oFlags, bool debugLoggingEnabled, std::string operationName)
+{
+    const int ops_removed = Operation(opVec, oFlags);
+    if (debugLoggingEnabled)
+    {
+        const std::string message = operationName + std::string(" - ") + std::to_string(ops_removed) + std::string(" optimisations found\n") +
+          ((ops_removed != 0) ? SerializeOpVec(opVec, 4) : std::string(""));
+
+        LogDebug(message);
+    }
+    return ops_removed;
+}
+
 } // namespace
 
 void OpRcPtrVec::finalize()
@@ -619,16 +661,14 @@ void OpRcPtrVec::optimize(OptimizationFlags oFlags)
     if (debugLoggingEnabled)
     {
         std::ostringstream oss;
-        oss << "\n**\nOptimizing Op Vec...\n"
-            << SerializeOpVec(*this, 4) << "\n";
-
+        oss << "\n**\nOptimizing Op Vec...\n" << SerializeOpVec(*this, 4);
         LogDebug(oss.str());
     }
 
     const auto originalSize = size();
 
     // NoOpType can be removed (facilitates conversion to a CPU/GPUProcessor).
-    const int total_nooptype = RemoveNoOpTypes(*this);
+    const int total_nooptype = PerformOptimisation(RemoveNoOpTypes, *this, oFlags, debugLoggingEnabled, "RemoveNoOpTypes");
 
     if (oFlags == OPTIMIZATION_NONE)
     {
@@ -637,8 +677,7 @@ void OpRcPtrVec::optimize(OptimizationFlags oFlags)
             OpRcPtrVec::size_type finalSize = size();
 
             std::ostringstream os;
-            os << "**\nOptimized "
-               << originalSize << "->" << finalSize << ", 1 pass, "
+            os << "**\nOptimized " << originalSize << "->" << finalSize << ", 1 pass, "
                << total_nooptype << " no-op types removed\n"
                << SerializeOpVec(*this, 4);
             LogDebug(os.str());
@@ -649,10 +688,11 @@ void OpRcPtrVec::optimize(OptimizationFlags oFlags)
 
     // Keep dynamic ops using their default values. Remove the ability to modify
     // them dynamically.
-    const auto removeDynamic = HasFlag(oFlags, OPTIMIZATION_NO_DYNAMIC_PROPERTIES);
-    if (removeDynamic)
+    const int dynamicOps = RemoveDynamicProperties(*this, oFlags);
+    if (debugLoggingEnabled)
     {
-        RemoveDynamicProperties(*this);
+        const auto message = std::string("RemoveDynamicProperties - ") + std::to_string(dynamicOps) + std::string(" removed");
+        LogDebug(message);
     }
 
     // As the input and output bit-depths represent the color processing
@@ -665,73 +705,63 @@ void OpRcPtrVec::optimize(OptimizationFlags oFlags)
     int total_inverseops    = 0;
     int total_combines      = 0;
     int total_inverses      = 0;
-    int passes              = 0;
-
-    const bool optimizeIdentity = HasFlag(oFlags, OPTIMIZATION_IDENTITY);
-    const bool replaceOps = HasFlag(oFlags, OPTIMIZATION_SIMPLIFY_OPS);
-
-    const bool fastLut = HasFlag(oFlags, OPTIMIZATION_LUT_INV_FAST);
+    int passes              = 1;
 
     while (passes <= MAX_OPTIMIZATION_PASSES)
     {
-        // Remove all ops for which isNoOp is true, including identity matrices.
-        int noops = optimizeIdentity ? RemoveNoOps(*this) : 0;
         if (debugLoggingEnabled)
-            LogDebug(std::string("RemoveNoOps\n") + SerializeOpVec(*this, 4));
+        {
+            const auto message = std::string("Starting pass ") + std::to_string(passes);
+            LogDebug(message);
+        }
+        // Remove all ops for which isNoOp is true, including identity matrices.
+        const int noops = PerformOptimisation(RemoveNoOps, *this, oFlags, debugLoggingEnabled, "RemoveNoOps");
+        total_noops += noops;
 
         // Replace all complex ops with simpler ops (e.g., a CDL which only scales with a matrix).
         // Note this might increase the number of ops.
-        int replacedOps = replaceOps ? ReplaceOps(*this) : 0;
-        if (debugLoggingEnabled)
-            LogDebug(std::string("ReplaceOps\n") + SerializeOpVec(*this, 4));
+        const int replacedOps = PerformOptimisation(ReplaceOps, *this, oFlags, debugLoggingEnabled, "ReplaceOps");
+        total_replacedops += replacedOps;
 
         // Replace all complex identities with simpler ops (e.g., an identity Lut1D with a range).
-        int identityops = ReplaceIdentityOps(*this, oFlags);
-        if (debugLoggingEnabled)
-            LogDebug(std::string("ReplaceIdentityOps\n") + SerializeOpVec(*this, 4));
+        const int identityops = PerformOptimisation(ReplaceIdentityOps, *this, oFlags, debugLoggingEnabled, "ReplaceIdentityOps");
+        total_identityops += identityops;
 
         // Remove all adjacent pairs of ops that are inverses of each other.
-        int inverseops  = RemoveInverseOps(*this, oFlags);
-        if (debugLoggingEnabled)
-            LogDebug(std::string("RemoveInverseOps\n") + SerializeOpVec(*this, 4));
+        const int inverseops = PerformOptimisation(RemoveInverseOps, *this, oFlags, debugLoggingEnabled, "RemoveInverseOps");
+        total_inverseops += inverseops;
 
         // Combine a pair of ops, for example multiply two adjacent Matrix ops.
         // (Combines at most one pair on each iteration.)
-        int combines    = CombineOps(*this, oFlags);
-        if (debugLoggingEnabled)
-            LogDebug(std::string("CombineOps\n") + SerializeOpVec(*this, 4));
+        const int combines = PerformOptimisation(CombineOps, *this, oFlags, debugLoggingEnabled, "CombineOps");
+        total_combines += combines;
 
-        if (noops + identityops + inverseops + combines == 0)
+        if (noops + replacedOps + identityops + inverseops + combines == 0)
         {
             // No optimization progress was made, so stop trying.  If requested, replace any
             // inverse LUTs with faster forward LUTs and do another pass to see if more
             // optimization is possible.
-            if (fastLut)
-            {
-                const int inverses = ReplaceInverseLuts(*this);
-                if (debugLoggingEnabled)
-                    LogDebug(std::string("ReplaceInverseLuts\n")
-                             + SerializeOpVec(*this, 4));
+            const int inverses = PerformOptimisation(ReplaceInverseLuts, *this, oFlags, debugLoggingEnabled, "ReplaceInverseLuts");
+            total_inverses += inverses;
 
-                if (inverses == 0)
-                {
-                    break;
-                }
-
-                total_inverses += inverses;
-            }
-            else
+            if (inverses == 0)
             {
                 break;
             }
         }
 
-        total_noops += noops;
-        total_replacedops += replacedOps;
-        total_identityops += identityops;
-        total_inverseops += inverseops;
-        total_combines += combines;
+        if (debugLoggingEnabled)
+        {
+            std::ostringstream os;
 
+            os << "Pass " << passes << " summary: "
+                          << noops << " no-op removed, "
+                          << replacedOps << " ops replaced, "
+                          << identityops << " identity ops replaced, "
+                          << inverseops << " inverse op pairs removed, "
+                          << combines << " ops combined.";
+            LogDebug(os.str());
+        }
         ++passes;
     }
 
