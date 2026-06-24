@@ -666,6 +666,13 @@ void OpRcPtrVec::optimize(OptimizationFlags oFlags)
     }
 
     const auto originalSize = size();
+    int total_noops         = 0;
+    int total_replacedops   = 0;
+    int total_identityops   = 0;
+    int total_inverseops    = 0;
+    int total_combines      = 0;
+    int total_inverses      = 0;
+    int passes              = 1;
 
     // NoOpType can be removed (facilitates conversion to a CPU/GPUProcessor).
     const int total_nooptype = PerformOptimisation(RemoveNoOpTypes, *this, oFlags, debugLoggingEnabled, "RemoveNoOpTypes");
@@ -677,7 +684,7 @@ void OpRcPtrVec::optimize(OptimizationFlags oFlags)
             OpRcPtrVec::size_type finalSize = size();
 
             std::ostringstream os;
-            os << "**\nOptimized " << originalSize << "->" << finalSize << ", 1 pass, "
+            os << "**\nOptimized " << originalSize << "->" << finalSize << ", " << passes << " pass, "
                << total_nooptype << " no-op types removed\n"
                << SerializeOpVec(*this, 4);
             LogDebug(os.str());
@@ -694,18 +701,6 @@ void OpRcPtrVec::optimize(OptimizationFlags oFlags)
         const auto message = std::string("RemoveDynamicProperties - ") + std::to_string(dynamicOps) + std::string(" removed");
         LogDebug(message);
     }
-
-    // As the input and output bit-depths represent the color processing
-    // request and they may be altered by the following optimizations,
-    // preserve their values.
-
-    int total_noops         = 0;
-    int total_replacedops   = 0;
-    int total_identityops   = 0;
-    int total_inverseops    = 0;
-    int total_combines      = 0;
-    int total_inverses      = 0;
-    int passes              = 1;
 
     while (passes <= MAX_OPTIMIZATION_PASSES)
     {
