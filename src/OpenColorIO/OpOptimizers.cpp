@@ -74,23 +74,13 @@ constexpr int MAX_OPTIMIZATION_PASSES = 80;
 
 int RemoveNoOpTypes(OpRcPtrVec & opVec, [[maybe_unused]] OptimizationFlags flags)
 {
-    int count = 0;
-
-    OpRcPtrVec::const_iterator iter = opVec.begin();
-    while (iter != opVec.end())
-    {
-        ConstOpRcPtr o = (*iter);
-        if (o->data()->getType() == OpData::NoOpType)
-        {
-            iter = opVec.erase(iter);
-            ++count;
-        }
-        else
-        {
-            ++iter;
-        }
-    }
-
+    // TODO: with c++20 could use std::erase_if ?
+    auto newEnd = std::remove_if(opVec.begin(), opVec.end(), [](const auto & o) {
+        return o->isNoOpType();
+    });
+    
+    int count = static_cast<int>(std::distance(newEnd, opVec.end()));
+    opVec.erase(newEnd, opVec.end());
     return count;
 }
 
@@ -104,50 +94,41 @@ int RemoveDynamicProperties(OpRcPtrVec & opVec, OptimizationFlags oFlags)
         return count;
     }
 
-    const size_t nbOps = opVec.size();
-    for (size_t i = 0; i < nbOps; ++i)
-    {
-        auto & op = opVec[i];
+    std::for_each(opVec.begin(), opVec.end(), [&count](auto & op) {
         if (op->isDynamic())
         {
             // Optimization flag is tested before.
             auto replacedBy = op->clone();
             replacedBy->removeDynamicProperties();
-            opVec[i] = replacedBy;
+            op = std::move(replacedBy);
             ++count;
         }
-    }
+    });
     return count;
 }
 
 int RemoveNoOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
 {
-    int count = 0;
     const bool optimizeIdentity = HasFlag(oFlags, OPTIMIZATION_IDENTITY);
     if (!optimizeIdentity)
     {
-        return count;
+        return 0;
     }
 
-    OpRcPtrVec::const_iterator iter = opVec.begin();
-    while (iter != opVec.end())
+    // TODO: with c++20 could use std::erase_if ?
+    auto newEnd = std::remove_if(opVec.begin(), opVec.end(), [](const auto& op)
     {
-        if ((*iter)->isNoOp())
-        {
-            iter = opVec.erase(iter);
-            ++count;
-        }
-        else
-        {
-            ++iter;
-        }
-    }
+        return op->isNoOp();
+    });
+
+    int count = static_cast<int>(std::distance(newEnd, opVec.end()));
+    opVec.erase(newEnd, opVec.end());
     return count;
 }
 
 void FinalizeOps(OpRcPtrVec & opVec)
 {
-    for (auto op : opVec)
+    for (const auto &op : opVec)
     {
         // Prepare LUT 1D for inversion and ensure Matrix & Range are forward.
         op->finalize();
@@ -167,6 +148,9 @@ int ReplaceOps(OpRcPtrVec & opVec, [[maybe_unused]] OptimizationFlags oFlags)
 
     int firstindex = 0; // this must be a signed int
 
+    // Note this erase/insert is potentially O(N^2), an alternative is to build a newOpVec at least as big as the current
+    // and as we pass throughand append the replacement or push_back the original.
+    // If the count is non-zero then std::move the newOpVec to OpVec
     OpRcPtrVec tmpops;
 
     while (firstindex < static_cast<int>(opVec.size()))
@@ -185,10 +169,16 @@ int ReplaceOps(OpRcPtrVec & opVec, [[maybe_unused]] OptimizationFlags oFlags)
             // Insert the new ops at this location.
             opVec.insert(opVec.begin() + firstindex, tmpops.begin(), tmpops.end());
 
-            // We've done something so increment the count!
+            // Advance index by the number of inserted elements to skip re-evaluating them,
+            // or add 0 if you want to recursively simplify newly inserted ops.
+            firstindex += static_cast<int>(tmpops.size());
             ++count;
         }
-        ++firstindex;
+        else
+        {
+            ++firstindex;
+        }
+        
     }
 
     return count;
@@ -208,11 +198,10 @@ int ReplaceIdentityOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
         return count;
     }
 
-    const size_t nbOps = opVec.size();
-    for (size_t i = 0; i < nbOps; ++i)
+    for (auto & op : opVec)
     {
-        ConstOpRcPtr op = opVec[i];
-        const auto type = op->data()->getType();
+        ConstOpRcPtr constOp = op; // const hackery to be able call getType() vie const member function
+        const auto type = constOp->data()->getType();
         if (type != OpData::RangeType && // Do not replace a range identity.
             ((type == OpData::GammaType && optIdGamma) ||
                 (type != OpData::GammaType && optIdentity)) &&
@@ -221,7 +210,7 @@ int ReplaceIdentityOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
             // Optimization flag is tested before.
             auto replacedBy = op->getIdentityReplacement();
             replacedBy->finalize();
-            opVec[i] = replacedBy;
+            op = std::move(replacedBy);
             ++count;
         }
     }
@@ -231,38 +220,30 @@ int ReplaceIdentityOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
 int RemoveInverseOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
 {
     int count      = 0;
-    int firstindex = 0; // this must be a signed int
+    int writeIdx   = 0;
+    const int numOps = static_cast<int>(opVec.size());
 
-    while (firstindex < (static_cast<int>(opVec.size()) - 1))
+    for (int readIdx = 0; readIdx < numOps; ++readIdx)
     {
-        ConstOpRcPtr op1 = opVec[firstindex];
-        ConstOpRcPtr op2 = opVec[firstindex + 1];
-        const auto type1 = op1->data()->getType();
-        const auto type2 = op2->data()->getType();
+        auto & op = opVec[readIdx];
+
+        if (writeIdx > 0)
+        {
+            ConstOpRcPtr lastOp = opVec[writeIdx - 1];
+            ConstOpRcPtr constOp = op;
+            const auto type1 = lastOp->data()->getType();
+            const auto type2 = constOp->data()->getType();
+
         // The common case of inverse ops is to have a deep nesting:
         // ..., A, B, B', A', ...
         //
-        // Consider the above, when firstindex reaches B:
-        //
-        //         |
-        // ..., A, B, B', A', ...
-        //
-        // We will remove B and B'.
-        // Firstindex remains pointing at the original location:
-        //
-        //         |
-        // ..., A, A', ...
-        //
-        // We then decrement firstindex by 1,
-        // to backstep and reconsider the A, A' case:
-        //
-        //      |            <-- firstindex decremented
-        // ..., A, A', ...
-        //
+        // By treating the processed portion of the vector as a stack (`writeIdx`), 
+        // popping an element automatically exposes `A` to be reconsidered against `A'` 
+        // on the next loop iteration.
 
         if (type1 == type2 &&
             IsPairInverseEnabled(type1, oFlags) &&
-            op1->isInverse(op2))
+            lastOp->isInverse(constOp))
         {
             // When a pair of inverse ops is removed, we want the optimized ops to give the
             // same result as the original.  For certain ops such as Lut1D or Log this may
@@ -274,8 +255,8 @@ int RemoveInverseOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
                 // Lut1D gets special handling so that both halfs of the pair are available.
                 // Only the inverse LUT has the values needed to generate the replacement.
 
-                ConstLut1DOpDataRcPtr lut1 = OCIO_DYNAMIC_POINTER_CAST<const Lut1DOpData>(op1->data());
-                ConstLut1DOpDataRcPtr lut2 = OCIO_DYNAMIC_POINTER_CAST<const Lut1DOpData>(op2->data());
+                ConstLut1DOpDataRcPtr lut1 = OCIO_DYNAMIC_POINTER_CAST<const Lut1DOpData>(lastOp->data());
+                ConstLut1DOpDataRcPtr lut2 = OCIO_DYNAMIC_POINTER_CAST<const Lut1DOpData>(constOp->data());
 
                 OpDataRcPtr opData = lut1->getPairIdentityReplacement(lut2);
 
@@ -296,28 +277,37 @@ int RemoveInverseOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
             }
             else
             {
-                replacedBy = op1->getIdentityReplacement();
+                replacedBy = lastOp->getIdentityReplacement();
             }
 
             replacedBy->finalize();
             if (replacedBy->isNoOp())
             {
-                opVec.erase(opVec.begin() + firstindex, opVec.begin() + firstindex + 2);
-                firstindex = std::max(0, firstindex - 1);
+                // Pop the last element off the stack to naturally backstep
+                --writeIdx;
             }
             else
             {
                 // Forward + inverse does clamp.
-                opVec[firstindex] = replacedBy;
-                opVec.erase(opVec.begin() + firstindex + 1);
-                ++firstindex;
+                opVec[writeIdx - 1] = std::move(replacedBy);
             }
             ++count;
+            continue;
         }
-        else
+        }
+
+        // Push the current op to the stack if it wasn't cancelled out
+        if (writeIdx != readIdx)
         {
-            ++firstindex;
+            opVec[writeIdx] = std::move(op);
         }
+        ++writeIdx;
+    }
+
+    if (count > 0)
+    {
+        // Drop any unused elements at the tail in a single O(N) pass
+        opVec.erase(opVec.begin() + writeIdx, opVec.end());
     }
 
     return count;
@@ -325,61 +315,46 @@ int RemoveInverseOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
 
 int CombineOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
 {
-    int count      = 0;
-    int firstindex = 0; // this must be a signed int
+    auto it = std::adjacent_find(opVec.begin(), opVec.end(),
+        [oFlags](const auto & ptr1, const auto & ptr2) {
+            ConstOpRcPtr op1 = ptr1;
+            ConstOpRcPtr op2 = ptr2;
+            return IsCombineEnabled(op1->data()->getType(), oFlags) && op1->canCombineWith(op2);
+        });
 
-    OpRcPtrVec tmpops;
-
-    while (firstindex < (static_cast<int>(opVec.size()) - 1))
+    if (it != opVec.end())
     {
-        ConstOpRcPtr op1 = opVec[firstindex];
-        ConstOpRcPtr op2 = opVec[firstindex + 1];
-        const auto type1 = op1->data()->getType();
+        OpRcPtrVec tmpops;
+        ConstOpRcPtr op1 = *it;
+        ConstOpRcPtr op2 = *(it + 1);
+        
+        op1->combineWith(tmpops, op2);
+        FinalizeOps(tmpops);
 
-        if (IsCombineEnabled(type1, oFlags) && op1->canCombineWith(op2))
-        {
-            tmpops.clear();
-            op1->combineWith(tmpops, op2);
-            FinalizeOps(tmpops);
+        // The tmpops may have any number of ops in it: (0, 1, 2, ...).
+        // (Size 0 would occur only if the combination results in a no-op,
+        //  for example, a pair of matrices that compose into a no-op are
+        //  returned as empty rather than as an identity matrix.)
+        //
+        // No matter the number, we need to swap them in for the original ops.
 
-            // The tmpops may have any number of ops in it: (0, 1, 2, ...).
-            // (Size 0 would occur only if the combination results in a no-op,
-            //  for example, a pair of matrices that compose into a no-op are
-            //  returned as empty rather than as an identity matrix.)
-            //
-            // No matter the number, we need to swap them in for the original ops.
+        // Erase the initial two ops we've combined.
+        it = opVec.erase(it, it + 2);
+        
+        // Insert the new ops (which may be empty) at this location.
+        opVec.insert(it, tmpops.begin(), tmpops.end());
 
-            // Erase the initial two ops we've combined.
-            opVec.erase(opVec.begin() + firstindex, opVec.begin() + firstindex + 2);
-
-            // Insert the new ops (which may be empty) at this location.
-            opVec.insert(opVec.begin() + firstindex, tmpops.begin(), tmpops.end());
-
-            // Decrement firstindex by 1,
-            // to backstep and reconsider the A, A' case.
-            // See RemoveInverseOps for the full discussion of
-            // why this is appropriate.
-            firstindex = std::max(0, firstindex - 1);
-
-            // We've done something so increment the count!
-            ++count;
-
-            // Break, since combining ops is less desirable than other optimization options.
-            // For example, it is preferable to remove a pair of ops using RemoveInverseOps
-            // rather than combining them. Consider this example:
-            // Lut1D A --> Matrix B --> Matrix C --> Lut1D Ainv
-            // If Matrix B & C are not pair inverses but do combine into an identity, then
-            // CombineOps would compose Lut1D A & Ainv, into a new Lut1D rather than
-            // allowing another round of optimization which would remove them as inverses.
-            break;
-        }
-        else
-        {
-            ++firstindex;
-        }
+        // Return 1 since combining ops is less desirable than other optimization options.
+        // For example, it is preferable to remove a pair of ops using RemoveInverseOps
+        // rather than combining them. Consider this example:
+        // Lut1D A --> Matrix B --> Matrix C --> Lut1D Ainv
+        // If Matrix B & C are not pair inverses but do combine into an identity, then
+        // CombineOps would compose Lut1D A & Ainv, into a new Lut1D rather than
+        // allowing another round of optimization which would remove them as inverses.
+        return 1;
     }
 
-    return count;
+    return 0;
 }
 
 // Replace any Lut1D or Lut3D that specify inverse evaluation with a faster forward approximation.
@@ -399,11 +374,10 @@ int ReplaceInverseLuts(OpRcPtrVec & opVec, OptimizationFlags oFlags)
         return count;
     }
 
-    const size_t nbOps = opVec.size();
-    for (size_t i = 0; i < nbOps; ++i)
+    for (auto & op : opVec)
     {
-        ConstOpRcPtr op = opVec[i];
-        auto opData = op->data();
+        ConstOpRcPtr constOp = op;
+        auto opData = constOp->data();
         const auto type = opData->getType();
         if (type == OpData::Lut1DType)
         {
@@ -414,7 +388,7 @@ int ReplaceInverseLuts(OpRcPtrVec & opVec, OptimizationFlags oFlags)
                 OpRcPtrVec tmpops;
                 CreateLut1DOp(tmpops, invLutData, TRANSFORM_DIR_FORWARD);
                 FinalizeOps(tmpops);
-                opVec[i] = tmpops[0];
+                op = std::move(tmpops[0]);
                 ++count;
             }
         }
@@ -427,63 +401,42 @@ int ReplaceInverseLuts(OpRcPtrVec & opVec, OptimizationFlags oFlags)
                 OpRcPtrVec tmpops;
                 CreateLut3DOp(tmpops, invLutData, TRANSFORM_DIR_FORWARD);
                 FinalizeOps(tmpops);
-                opVec[i] = tmpops[0];
+                op = std::move(tmpops[0]);
                 ++count;
             }
         }
     }
-    return count;
-}
+    return count;}
 
 int RemoveLeadingClampIdentity(OpRcPtrVec & opVec)
 {
-    int count = 0;
-    OpRcPtrVec::const_iterator iter = opVec.begin();
-    while (iter != opVec.end())
+    auto it = std::find_if_not(opVec.begin(), opVec.end(), [](const auto & op) {
+        ConstOpRcPtr constOp = op;
+        auto oData = constOp->data();
+        return oData->getType() == OpData::RangeType && oData->isIdentity();
+    });
+
+    int count = static_cast<int>(std::distance(opVec.begin(), it));
+    if (count > 0)
     {
-        ConstOpRcPtr o = (*iter);
-        auto oData = o->data();
-        if (oData->getType() == OpData::RangeType && oData->isIdentity())
-        {
-            ++iter;
-            ++count;
-        }
-        else
-        {
-            break;
-        }
-    }
-    if (count != 0)
-    {
-        OpRcPtrVec::const_iterator iter = opVec.begin() + count;
-        opVec.erase(opVec.begin(), iter);
+        opVec.erase(opVec.begin(), it);
     }
     return count;
 }
 
 int RemoveTrailingClampIdentity(OpRcPtrVec & opVec)
 {
-    int count = 0;
-    int current = static_cast<int>(opVec.size()) - 1;
-    while (current >= 0)
-    {
-        ConstOpRcPtr o = opVec[current];
-        auto oData = o->data();
-        if (oData->getType() == OpData::RangeType && oData->isIdentity())
-        {
-            ++count;
-            --current;
-        }
-        else
-        {
-            break;
-        }
-    }
+    // Note the use of reverse iterators
+    auto rit = std::find_if_not(opVec.rbegin(), opVec.rend(), [](const auto & op) {
+        ConstOpRcPtr constOp = op;
+        auto oData = constOp->data();
+        return oData->getType() == OpData::RangeType && oData->isIdentity();
+    });
 
-    if (count != 0)
+    int count = static_cast<int>(std::distance(opVec.rbegin(), rit));
+    if (count > 0)
     {
-        OpRcPtrVec::const_iterator iter = opVec.begin() + (current + 1);
-        opVec.erase(iter, opVec.end());
+        opVec.erase(rit.base(), opVec.end());
     }
     return count;
 }
@@ -500,23 +453,16 @@ int RemoveTrailingClampIdentity(OpRcPtrVec & opVec)
 //
 unsigned FindSeparablePrefix(const OpRcPtrVec & ops)
 {
-    unsigned prefixLen = 0;
-
     // Loop over the ops until we get to one that cannot be combined.
     //
     // Note: For some ops such as Matrix and CDL, the separability depends upon
     //       the parameters.
-    for (const auto & op : ops)
-    {
+    auto it = std::find_if(ops.begin(), ops.end(), [](const auto & op) {
         // In OCIO, the hasChannelCrosstalk method returns false for separable ops.
-        if (op->hasChannelCrosstalk() || op->isDynamic())
-        {
-            break;
-        }
+        return op->hasChannelCrosstalk() || op->isDynamic();
+    });
 
-        // Op is separable, keep going.
-        prefixLen++;
-    }
+    unsigned prefixLen = static_cast<unsigned>(std::distance(ops.begin(), it));
 
     // If the only op is a 1D LUT, there is actually nothing to optimize
     // so set the length to 0.  (This also avoids an infinite loop.)
@@ -538,11 +484,7 @@ unsigned FindSeparablePrefix(const OpRcPtrVec & ops)
     // Some ops are so fast that it may not make sense to replace just one of those.
     // E.g., if it's just a single matrix, it may not be faster to replace it with a LUT.
     // So make sure there are some more expensive ops to combine.
-    unsigned expensiveOps = 0U;
-    for (unsigned i = 0; i < prefixLen; ++i)
-    {
-        auto op = ops[i];
-
+    auto expensiveOps = std::count_if(ops.begin(), ops.begin() + prefixLen, [](const auto & op) {
         if (op->hasChannelCrosstalk())
         {
             // Non-separable ops (should never get here).
@@ -550,17 +492,13 @@ unsigned FindSeparablePrefix(const OpRcPtrVec & ops)
         }
 
         ConstOpRcPtr constOp = op;
-        if (constOp->data()->getType() == OpData::MatrixType
-            || constOp->data()->getType() == OpData::RangeType)
-        {
-            // Potentially separable, but inexpensive ops.
-            // TODO: Perhaps a LUT is faster once the conversion to float is considered?
-        }
-        else
-        {
-            expensiveOps++;
-        }
-    }
+        const auto type = constOp->data()->getType();
+        
+        // Potentially separable, but inexpensive ops are not counted.
+        // TODO: Perhaps a LUT is faster once the conversion to float is considered?
+
+        return type != OpData::MatrixType && type != OpData::RangeType;
+    });
 
     if (expensiveOps == 0)
     {
@@ -599,10 +537,9 @@ void OptimizeSeparablePrefix(OpRcPtrVec & ops, BitDepth in)
     }
 
     OpRcPtrVec prefixOps;
-    for (unsigned i = 0; i < prefixLen; ++i)
-    {
-        prefixOps.push_back(ops[i]->clone());
-    }
+    // TODO: add a function to reserve on the type: prefixOps.reserve(prefixLen);
+    std::transform(ops.begin(), ops.begin() + prefixLen, std::back_inserter(prefixOps),
+                   [](const auto & op) { return op->clone(); });
 
     // Make a domain for the LUT.  (Will be half-domain for target == 16f.)
     Lut1DOpDataRcPtr newDomain = Lut1DOpData::MakeLookupDomain(in);
@@ -611,26 +548,49 @@ void OptimizeSeparablePrefix(OpRcPtrVec & ops, BitDepth in)
     // Note: This sets the outBitDepth of newDomain to match prefixOps.
     Lut1DOpData::ComposeVec(newDomain, prefixOps);
 
-    // Remove the prefix ops.
-    ops.erase(ops.begin(), ops.begin() + prefixLen);
-
     // Insert the new LUT to replace the prefix ops.
     OpRcPtrVec lutOps;
     CreateLut1DOp(lutOps, newDomain, TRANSFORM_DIR_FORWARD);
     FinalizeOps(lutOps);
 
-    ops.insert(ops.begin(), lutOps.begin(), lutOps.end());
+    const size_t numNewOps = lutOps.size();
+    if (numNewOps <= prefixLen)
+    {
+        for (size_t i = 0; i < numNewOps; ++i)
+        {
+            ops[i] = std::move(lutOps[i]);
+        }
+        if (numNewOps < prefixLen)
+        {
+            ops.erase(ops.begin() + numNewOps, ops.begin() + prefixLen);
+        }
+    }
+    else
+    {
+        for (size_t i = 0; i < prefixLen; ++i)
+        {
+            ops[i] = std::move(lutOps[i]);
+        }
+        ops.insert(ops.begin() + prefixLen, 
+                    lutOps.begin() + prefixLen, 
+                    lutOps.end());
+                   // TODO if we were compliance std::make_move_iterator(lutOps.begin() + prefixLen), 
+                   // std::make_move_iterator(lutOps.end()));
+    }
 }
 
-int PerformOptimisation(int (*Operation)(OpRcPtrVec &, OptimizationFlags), OpRcPtrVec & opVec, OptimizationFlags oFlags, bool debugLoggingEnabled, std::string operationName)
+int PerformOptimisation(int (*Operation)(OpRcPtrVec &, OptimizationFlags), OpRcPtrVec & opVec, OptimizationFlags oFlags, bool debugLoggingEnabled, const char * const operationName)
 {
     const int ops_removed = Operation(opVec, oFlags);
     if (debugLoggingEnabled)
     {
-        const std::string message = operationName + std::string(" - ") + std::to_string(ops_removed) + std::string(" optimisations found\n") +
-          ((ops_removed != 0) ? SerializeOpVec(opVec, 4) : std::string(""));
-
-        LogDebug(message);
+        std::ostringstream os;
+        os << operationName << " - " << ops_removed << " optimisations found\n";
+        if (ops_removed != 0)
+        {
+            os << SerializeOpVec(opVec, 4);
+        }
+        LogDebug(os.str());
     }
     return ops_removed;
 }
