@@ -149,7 +149,7 @@ int ReplaceOps(OpRcPtrVec & opVec, [[maybe_unused]] OptimizationFlags oFlags)
     int firstindex = 0; // this must be a signed int
 
     // Note this erase/insert is potentially O(N^2), an alternative is to build a newOpVec at least as big as the current
-    // and as we pass throughand append the replacement or push_back the original.
+    // and as we pass through and append the replacement or push_back the original.
     // If the count is non-zero then std::move the newOpVec to OpVec
     OpRcPtrVec tmpops;
 
@@ -234,66 +234,66 @@ int RemoveInverseOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
             const auto type1 = lastOp->data()->getType();
             const auto type2 = constOp->data()->getType();
 
-        // The common case of inverse ops is to have a deep nesting:
-        // ..., A, B, B', A', ...
-        //
-        // By treating the processed portion of the vector as a stack (`writeIdx`), 
-        // popping an element automatically exposes `A` to be reconsidered against `A'` 
-        // on the next loop iteration.
+            // The common case of inverse ops is to have a deep nesting:
+            // ..., A, B, B', A', ...
+            //
+            // By treating the processed portion of the vector as a stack (`writeIdx`), 
+            // popping an element automatically exposes `A` to be reconsidered against `A'` 
+            // on the next loop iteration.
 
-        if (type1 == type2 &&
-            IsPairInverseEnabled(type1, oFlags) &&
-            lastOp->isInverse(constOp))
-        {
-            // When a pair of inverse ops is removed, we want the optimized ops to give the
-            // same result as the original.  For certain ops such as Lut1D or Log this may
-            // mean inserting a Range to emulate the clamping done by the original ops.
-
-            OpRcPtr replacedBy;
-            if (type1 == OpData::Lut1DType)
+            if (type1 == type2 &&
+                IsPairInverseEnabled(type1, oFlags) &&
+                lastOp->isInverse(constOp))
             {
-                // Lut1D gets special handling so that both halfs of the pair are available.
-                // Only the inverse LUT has the values needed to generate the replacement.
+                // When a pair of inverse ops is removed, we want the optimized ops to give the
+                // same result as the original.  For certain ops such as Lut1D or Log this may
+                // mean inserting a Range to emulate the clamping done by the original ops.
 
-                ConstLut1DOpDataRcPtr lut1 = OCIO_DYNAMIC_POINTER_CAST<const Lut1DOpData>(lastOp->data());
-                ConstLut1DOpDataRcPtr lut2 = OCIO_DYNAMIC_POINTER_CAST<const Lut1DOpData>(constOp->data());
-
-                OpDataRcPtr opData = lut1->getPairIdentityReplacement(lut2);
-
-                OpRcPtrVec ops;
-                if (opData->getType() == OpData::MatrixType)
+                OpRcPtr replacedBy;
+                if (type1 == OpData::Lut1DType)
                 {
-                    // No-op that will be optimized.
-                    auto mat = OCIO_DYNAMIC_POINTER_CAST<MatrixOpData>(opData);
-                    CreateMatrixOp(ops, mat, TRANSFORM_DIR_FORWARD);
-                }
-                else if (opData->getType() == OpData::RangeType)
-                {
-                    // Clamping op.
-                    auto range = OCIO_DYNAMIC_POINTER_CAST<RangeOpData>(opData);
-                    CreateRangeOp(ops, range, TRANSFORM_DIR_FORWARD);
-                }
-                replacedBy = ops[0];
-            }
-            else
-            {
-                replacedBy = lastOp->getIdentityReplacement();
-            }
+                    // Lut1D gets special handling so that both halfs of the pair are available.
+                    // Only the inverse LUT has the values needed to generate the replacement.
 
-            replacedBy->finalize();
-            if (replacedBy->isNoOp())
-            {
-                // Pop the last element off the stack to naturally backstep
-                --writeIdx;
+                    ConstLut1DOpDataRcPtr lut1 = OCIO_DYNAMIC_POINTER_CAST<const Lut1DOpData>(lastOp->data());
+                    ConstLut1DOpDataRcPtr lut2 = OCIO_DYNAMIC_POINTER_CAST<const Lut1DOpData>(constOp->data());
+
+                    OpDataRcPtr opData = lut1->getPairIdentityReplacement(lut2);
+
+                    OpRcPtrVec ops;
+                    if (opData->getType() == OpData::MatrixType)
+                    {
+                        // No-op that will be optimized.
+                        auto mat = OCIO_DYNAMIC_POINTER_CAST<MatrixOpData>(opData);
+                        CreateMatrixOp(ops, mat, TRANSFORM_DIR_FORWARD);
+                    }
+                    else if (opData->getType() == OpData::RangeType)
+                    {
+                        // Clamping op.
+                        auto range = OCIO_DYNAMIC_POINTER_CAST<RangeOpData>(opData);
+                        CreateRangeOp(ops, range, TRANSFORM_DIR_FORWARD);
+                    }
+                    replacedBy = ops[0];
+                }
+                else
+                {
+                    replacedBy = lastOp->getIdentityReplacement();
+                }
+
+                replacedBy->finalize();
+                if (replacedBy->isNoOp())
+                {
+                    // Pop the last element off the stack to naturally backstep
+                    --writeIdx;
+                }
+                else
+                {
+                    // Forward + inverse does clamp.
+                    opVec[writeIdx - 1] = std::move(replacedBy);
+                }
+                ++count;
+                continue;
             }
-            else
-            {
-                // Forward + inverse does clamp.
-                opVec[writeIdx - 1] = std::move(replacedBy);
-            }
-            ++count;
-            continue;
-        }
         }
 
         // Push the current op to the stack if it wasn't cancelled out
@@ -406,7 +406,8 @@ int ReplaceInverseLuts(OpRcPtrVec & opVec, OptimizationFlags oFlags)
             }
         }
     }
-    return count;}
+    return count;
+}
 
 int RemoveLeadingClampIdentity(OpRcPtrVec & opVec)
 {
@@ -574,7 +575,7 @@ void OptimizeSeparablePrefix(OpRcPtrVec & ops, BitDepth in)
         ops.insert(ops.begin() + prefixLen, 
                     lutOps.begin() + prefixLen, 
                     lutOps.end());
-                   // TODO if we were compliance std::make_move_iterator(lutOps.begin() + prefixLen), 
+                   // TODO if we were compliant std::make_move_iterator(lutOps.begin() + prefixLen), 
                    // std::make_move_iterator(lutOps.end()));
     }
 }
