@@ -5,6 +5,7 @@
 #include <iterator>
 #include <sstream>
 #include <string>
+#include <string_view>
 
 #include <OpenColorIO/OpenColorIO.h>
 
@@ -604,7 +605,7 @@ void OptimizeSeparablePrefix(OpRcPtrVec & ops, BitDepth in)
     }
 }
 
-int PerformOptimisation(int (*Operation)(OpRcPtrVec &, OptimizationFlags), OpRcPtrVec & opVec, OptimizationFlags oFlags, bool debugLoggingEnabled, const char * const operationName)
+int PerformOptimisation(int (*Operation)(OpRcPtrVec &, OptimizationFlags), OpRcPtrVec & opVec, OptimizationFlags oFlags, bool debugLoggingEnabled, std::string_view operationName)
 {
     const int ops_removed = Operation(opVec, oFlags);
     if (debugLoggingEnabled)
@@ -683,7 +684,7 @@ void OpRcPtrVec::optimize(OptimizationFlags oFlags)
     const int dynamicOps = RemoveDynamicProperties(*this, oFlags);
     if (debugLoggingEnabled)
     {
-        const auto message = std::string("RemoveDynamicProperties - ") + std::to_string(dynamicOps) + std::string(" removed");
+        const auto message = "RemoveDynamicProperties - " + std::to_string(dynamicOps) + " removed";
         LogDebug(message);
     }
 
@@ -691,7 +692,7 @@ void OpRcPtrVec::optimize(OptimizationFlags oFlags)
     {
         if (debugLoggingEnabled)
         {
-            const auto message = std::string("Starting pass ") + std::to_string(passes);
+            const auto message = "Starting pass " + std::to_string(passes);
             LogDebug(message);
         }
         // Remove all ops for which isNoOp is true, including identity matrices.
