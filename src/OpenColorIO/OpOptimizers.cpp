@@ -163,15 +163,22 @@ int ReplaceOps(OpRcPtrVec & opVec, [[maybe_unused]] OptimizationFlags oFlags)
         {
             FinalizeOps(tmpops);
 
-            // Erase the initial op we've replaced.
-            opVec.erase(opVec.begin() + firstindex, opVec.begin() + firstindex + 1);
+            auto it = opVec.begin() + firstindex;
+            const size_t numNewOps = tmpops.size();
 
-            // Insert the new ops at this location.
-            opVec.insert(opVec.begin() + firstindex, tmpops.begin(), tmpops.end());
+            if (numNewOps == 1)
+            {
+                *it = std::move(tmpops[0]);
+            }
+            else
+            {
+                *it = std::move(tmpops[0]);
+                opVec.insert(it + 1, tmpops.begin() + 1, tmpops.end());
+            }
 
             // Advance index by the number of inserted elements to skip re-evaluating them,
             // or add 0 if you want to recursively simplify newly inserted ops.
-            firstindex += static_cast<int>(tmpops.size());
+            firstindex += static_cast<int>(numNewOps);
             ++count;
         }
         else
@@ -338,11 +345,28 @@ int CombineOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
         //
         // No matter the number, we need to swap them in for the original ops.
 
-        // Erase the initial two ops we've combined.
-        it = opVec.erase(it, it + 2);
-        
-        // Insert the new ops (which may be empty) at this location.
-        opVec.insert(it, tmpops.begin(), tmpops.end());
+        const size_t numNewOps = tmpops.size();
+        if (numNewOps == 0)
+        {
+            opVec.erase(it, it + 2);
+        }
+        else if (numNewOps == 1)
+        {
+            *it = std::move(tmpops[0]);
+            opVec.erase(it + 1);
+        }
+        else if (numNewOps == 2)
+        {
+            *it = std::move(tmpops[0]);
+            *(it + 1) = std::move(tmpops[1]);
+        }
+        else
+        {
+            *it = std::move(tmpops[0]);
+            *(it + 1) = std::move(tmpops[1]);
+            opVec.insert(it + 2, tmpops.begin() + 2, tmpops.end());
+        }
+
 
         // Return 1 since combining ops is less desirable than other optimization options.
         // For example, it is preferable to remove a pair of ops using RemoveInverseOps
