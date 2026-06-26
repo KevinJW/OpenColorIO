@@ -158,8 +158,7 @@ size_t ReplaceOps(OpRcPtrVec & opVec, [[maybe_unused]] OptimizationFlags oFlags)
     while (firstindex < opVec.size())
     {
         tmpops.clear();
-        ConstOpRcPtr op = opVec[firstindex];
-        op->getSimplerReplacement(tmpops);
+        opVec[firstindex]->getSimplerReplacement(tmpops);
 
         if (!tmpops.empty())
         {
@@ -325,18 +324,16 @@ size_t CombineOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
 {
     auto it = std::adjacent_find(opVec.begin(), opVec.end(),
         [oFlags](const auto & ptr1, const auto & ptr2) {
-            ConstOpRcPtr op1 = ptr1;
             ConstOpRcPtr op2 = ptr2;
-            return IsCombineEnabled(op1->data()->getType(), oFlags) && op1->canCombineWith(op2);
+            return IsCombineEnabled(std::as_const(*ptr1).data()->getType(), oFlags) && ptr1->canCombineWith(op2);
         });
 
     if (it != opVec.end())
     {
         OpRcPtrVec tmpops;
-        ConstOpRcPtr op1 = *it;
         ConstOpRcPtr op2 = *(it + 1);
         
-        op1->combineWith(tmpops, op2);
+        (*it)->combineWith(tmpops, op2);
         FinalizeOps(tmpops);
 
         // The tmpops may have any number of ops in it: (0, 1, 2, ...).
@@ -787,4 +784,3 @@ void OpRcPtrVec::optimizeForBitdepth(const BitDepth & inBitDepth,
 }
 
 } // namespace OCIO_NAMESPACE
-
