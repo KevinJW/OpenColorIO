@@ -510,7 +510,7 @@ size_t FindSeparablePrefix(const OpRcPtrVec & ops)
     // Some ops are so fast that it may not make sense to replace just one of those.
     // E.g., if it's just a single matrix, it may not be faster to replace it with a LUT.
     // So make sure there are some more expensive ops to combine.
-    auto expensiveOps = std::count_if(ops.begin(), ops.begin() + prefixLen, [](const auto & op) {
+    bool hasExpensiveOps = std::any_of(ops.begin(), ops.begin() + prefixLen, [](const auto & op) {
         if (op->hasChannelCrosstalk())
         {
             // Non-separable ops (should never get here).
@@ -526,7 +526,7 @@ size_t FindSeparablePrefix(const OpRcPtrVec & ops)
         return type != OpData::MatrixType && type != OpData::RangeType;
     });
 
-    if (expensiveOps == 0)
+    if (!hasExpensiveOps)
     {
         return 0;
     }
