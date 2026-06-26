@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright Contributors to the OpenColorIO Project.
 
+#include <algorithm>
 #include <string>
 #include <sstream>
 
@@ -24,16 +25,6 @@
 
 namespace OCIO_NAMESPACE
 {
-bool OpCPU::isDynamic() const
-{
-    return false;
-}
-
-bool OpCPU::hasDynamicProperty(DynamicPropertyType /* type */) const
-{
-    return false;
-}
-
 DynamicPropertyRcPtr OpCPU::getDynamicProperty(DynamicPropertyType /* type */) const
 {
     throw Exception("Op does not implement dynamic property.");
@@ -177,6 +168,8 @@ OpRcPtr Op::getIdentityReplacement() const
 {
     auto opData = m_data->getIdentityReplacement();
     OpRcPtrVec ops;
+    ops.reserve(1);
+
     if (opData->getType() == OpData::MatrixType)
     {
         // No-op that will be optimized.
@@ -196,13 +189,14 @@ OpRcPtr Op::getIdentityReplacement() const
             << std::string(GetTypeName(opData->getType())) << ".";
         throw Exception(oss.str().c_str());
     }
-    return ops[0];
+    return std::move(ops[0]);
 }
 
 void Op::getSimplerReplacement(OpRcPtrVec & ops) const
 {
     OpDataVec opDataVec;
     m_data->getSimplerReplacement(opDataVec);
+    ops.reserve(ops.size() + opDataVec.size());
     for (const auto & opData : opDataVec)
     {
         CreateOpVecFromOpData(ops, opData, TRANSFORM_DIR_FORWARD);
@@ -246,68 +240,28 @@ OpRcPtrVec & OpRcPtrVec::operator+=(const OpRcPtrVec & v)
     }
 }
 
-OpRcPtrVec::iterator OpRcPtrVec::erase(OpRcPtrVec::const_iterator position) 
-{ 
-    return m_ops.erase(position); 
-}
-
-OpRcPtrVec::iterator OpRcPtrVec::erase(OpRcPtrVec::const_iterator first, 
-                                        OpRcPtrVec::const_iterator last)
-{ 
-    return m_ops.erase(first, last); 
-}
-
-void OpRcPtrVec::insert(OpRcPtrVec::const_iterator position, 
-                        OpRcPtrVec::const_iterator first, 
-                        OpRcPtrVec::const_iterator last)
-{
-    m_ops.insert(position, first, last);
-}
-
-void OpRcPtrVec::push_back(const OpRcPtrVec::value_type & val) 
-{
-    m_ops.push_back(val);
-}
-
-OpRcPtrVec::const_reference OpRcPtrVec::back() const
-{
-    return m_ops.back();
-}
-
-OpRcPtrVec::const_reference OpRcPtrVec::front() const
-{
-    return m_ops.front();
-}
-
 bool OpRcPtrVec::isNoOp() const noexcept
 {
-    for (const auto & op : m_ops)
-    {
-        if(!op->isNoOp()) return false;
-    }
-
-    return true;
+    return std::all_of(m_ops.begin(), m_ops.end(),
+                       [](const auto & op) { return op->isNoOp(); });
 }
 
 bool OpRcPtrVec::hasChannelCrosstalk() const noexcept
 {
-    return m_ops.end() != std::find_if(m_ops.begin(),
-                                       m_ops.end(),
-                                       [](const OpRcPtr & op) { return op->hasChannelCrosstalk(); } );
+    return std::any_of(m_ops.begin(), m_ops.end(),
+                       [](const auto & op) { return op->hasChannelCrosstalk(); });
 }
 
 bool OpRcPtrVec::isDynamic() const noexcept
 {
-    return m_ops.end() != std::find_if(m_ops.begin(),
-                                       m_ops.end(),
-                                       [](const OpRcPtr & op) { return op->isDynamic(); } );
+    return std::any_of(m_ops.begin(), m_ops.end(),
+                       [](const auto & op) { return op->isDynamic(); });
 }
 
 bool OpRcPtrVec::hasDynamicProperty(DynamicPropertyType type) const noexcept
 {
-    return m_ops.end() != std::find_if(m_ops.begin(),
-                                       m_ops.end(),
-                                       [type](const OpRcPtr & op) { return op->hasDynamicProperty(type); } );
+    return std::any_of(m_ops.begin(), m_ops.end(),
+                       [type](const auto & op) { return op->hasDynamicProperty(type); });
 }
 
 DynamicPropertyRcPtr OpRcPtrVec::getDynamicProperty(DynamicPropertyType type) const
@@ -326,10 +280,11 @@ DynamicPropertyRcPtr OpRcPtrVec::getDynamicProperty(DynamicPropertyType type) co
 OpRcPtrVec OpRcPtrVec::clone() const 
 {
     OpRcPtrVec cloned;
+    cloned.reserve(m_ops.size());
 
     for (const auto & op : m_ops)
     {
-        cloned.push_back(op->clone());
+        cloned.emplace_back(op->clone());
     }
 
     return cloned;
@@ -338,6 +293,7 @@ OpRcPtrVec OpRcPtrVec::clone() const
 OpRcPtrVec OpRcPtrVec::invert() const
 {
     OpRcPtrVec inverted;
+    inverted.reserve(m_ops.size());
 
     OpRcPtrVec::const_reverse_iterator iter = m_ops.rbegin();
     OpRcPtrVec::const_reverse_iterator end  = m_ops.rend();

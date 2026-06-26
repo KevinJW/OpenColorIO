@@ -6,6 +6,7 @@
 #define INCLUDED_OCIO_OP_H
 
 #include <vector>
+#include <utility>
 
 #include <OpenColorIO/OpenColorIO.h>
 
@@ -44,8 +45,8 @@ public:
     // the 1D LUT CPU Op where the finalization depends on input and output bit depths.
     virtual void apply(const void * inImg, void * outImg, long numPixels) const = 0;
 
-    virtual bool isDynamic() const;
-    virtual bool hasDynamicProperty(DynamicPropertyType type) const;
+    virtual bool isDynamic() const { return false; }
+    virtual bool hasDynamicProperty([[maybe_unused]] DynamicPropertyType type) const { return false; }
     virtual DynamicPropertyRcPtr getDynamicProperty(DynamicPropertyType type) const;
 };
 
@@ -332,22 +333,28 @@ public:
     OpRcPtrVec & operator+=(const OpRcPtrVec & v);
 
     size_type size() const { return m_ops.size(); }
+    size_type capacity() const noexcept { return m_ops.capacity(); }
+    size_type max_size() const noexcept { return m_ops.max_size(); }
 
     iterator begin() noexcept { return m_ops.begin(); }
     const_iterator begin() const noexcept { return m_ops.begin(); }
+    const_iterator cbegin() const noexcept { return m_ops.cbegin(); }
     iterator end() noexcept { return m_ops.end(); }
     const_iterator end() const noexcept { return m_ops.end(); }
+    const_iterator cend() const noexcept { return m_ops.cend(); }
 
     reverse_iterator rbegin() noexcept { return m_ops.rbegin(); }
     const_reverse_iterator rbegin() const noexcept { return m_ops.rbegin(); }
+    const_reverse_iterator crbegin() const noexcept { return m_ops.crbegin(); }
     reverse_iterator rend() noexcept { return m_ops.rend(); }
     const_reverse_iterator rend() const noexcept { return m_ops.rend(); }
+    const_reverse_iterator crend() const noexcept { return m_ops.crend(); }
 
     const OpRcPtr & operator[](size_type idx) const { return m_ops[idx]; }
     OpRcPtr & operator[](size_type idx) { return m_ops[idx]; }
 
-    iterator erase(const_iterator position);       
-    iterator erase(const_iterator first, const_iterator last);
+    iterator erase(const_iterator position) { return m_ops.erase(position); }
+    iterator erase(const_iterator first, const_iterator last) { return m_ops.erase(first, last); }
 
     // Insert at the 'position' the elements from the range ['first', 'last'[ 
     // respecting the element's order. Inserting elements at a given position 
@@ -357,15 +364,31 @@ public:
     // in an empty list appends elements from the range ['first', 'last'[.
     //
     // Note: It copies elements i.e. no clone.
-    void insert(const_iterator position, const_iterator first, const_iterator last);
+    template<class InputIt>
+    void insert(const_iterator position, InputIt first, InputIt last)
+    {
+        m_ops.insert(position, first, last);
+    }
 
     void clear() noexcept { m_ops.clear(); }
     bool empty() const noexcept { return m_ops.empty(); }
 
-    void push_back(const value_type & val);
+    void reserve(size_type n) { m_ops.reserve(n); }
+    void shrink_to_fit() { m_ops.shrink_to_fit(); }
+    void resize(size_type count) { m_ops.resize(count); }
+    void resize(size_type count, const value_type & value) { m_ops.resize(count, value); }
 
-    const_reference back() const;
-    const_reference front() const;
+    void push_back(const value_type & val) { m_ops.push_back(val); }
+    void push_back(value_type && val) { m_ops.push_back(std::move(val)); }
+
+    template<class... Args>
+    reference emplace_back(Args&&... args)
+    {
+        return m_ops.emplace_back(std::forward<Args>(args)...);
+    }
+
+    const_reference back() const { return m_ops.back(); }
+    const_reference front() const { return m_ops.front(); }
 
     // The following methods provide helpers for basic Op behaviors.
 

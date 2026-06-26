@@ -148,45 +148,52 @@ size_t ReplaceOps(OpRcPtrVec & opVec, [[maybe_unused]] OptimizationFlags oFlags)
         return count;
     }
 
-    size_t firstindex = 0;
 
-    // Note this erase/insert is potentially O(N^2), an alternative is to build a newOpVec at least as big as the current
-    // and as we pass through and append the replacement or push_back the original.
-    // If the count is non-zero then std::move the newOpVec to OpVec
     OpRcPtrVec tmpops;
+    OpRcPtrVec newOpVec;
+    bool rebuilding = false;
 
-    while (firstindex < opVec.size())
+    for (size_t i = 0; i < opVec.size(); ++i)
     {
         tmpops.clear();
-        opVec[firstindex]->getSimplerReplacement(tmpops);
+        opVec[i]->getSimplerReplacement(tmpops);
 
         if (!tmpops.empty())
         {
+            if (!rebuilding)
+            {
+                rebuilding = true;
+                // Defer allocation until the first replacement to prevent
+                // large, unnecessary heap allocations on no-op optimizer passes.
+                newOpVec.reserve(opVec.size());
+                
+                // Catch up any unmodified elements prior to this replacement
+                for (size_t j = 0; j < i; ++j)
+                {
+                    newOpVec.emplace_back(std::move(opVec[j]));
+                }
+            }
+
             FinalizeOps(tmpops);
-
-            auto it = opVec.begin() + firstindex;
-            const size_t numNewOps = tmpops.size();
-
-            if (numNewOps == 1)
+            for (auto & newOp : tmpops)
             {
-                *it = std::move(tmpops[0]);
+                newOpVec.emplace_back(std::move(newOp));
             }
-            else
-            {
-                *it = std::move(tmpops[0]);
-                opVec.insert(it + 1, tmpops.begin() + 1, tmpops.end());
-            }
-
-            // Advance index by the number of inserted elements to skip re-evaluating them,
-            // or add 0 if you want to recursively simplify newly inserted ops.
-            firstindex += numNewOps;
             ++count;
         }
         else
         {
-            ++firstindex;
+            if (rebuilding)
+            {
+                newOpVec.emplace_back(std::move(opVec[i]));
+            }
         }
         
+    }
+
+    if (rebuilding)
+    {
+        opVec = std::move(newOpVec);
     }
 
     return count;
@@ -280,7 +287,7 @@ size_t RemoveInverseOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
                         auto range = OCIO_DYNAMIC_POINTER_CAST<RangeOpData>(opData);
                         CreateRangeOp(ops, range, TRANSFORM_DIR_FORWARD);
                     }
-                    replacedBy = ops[0];
+                    replacedBy = std::move(ops[0]);
                 }
                 else
                 {
@@ -362,8 +369,9 @@ size_t CombineOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
         {
             *it = std::move(tmpops[0]);
             *(it + 1) = std::move(tmpops[1]);
-            opVec.insert(it + 2, tmpops.begin() + 2, tmpops.end());
-        }
+            opVec.insert(it + 2, 
+                         std::make_move_iterator(tmpops.begin() + 2), 
+                         std::make_move_iterator(tmpops.end()));        }
 
 
         // Return 1 since combining ops is less desirable than other optimization options.
@@ -557,9 +565,11 @@ void OptimizeSeparablePrefix(OpRcPtrVec & ops, BitDepth in)
     }
 
     OpRcPtrVec prefixOps;
-    // TODO: add a function to reserve on the type: prefixOps.reserve(prefixLen);
-    std::transform(ops.begin(), ops.begin() + prefixLen, std::back_inserter(prefixOps),
-                   [](const auto & op) { return op->clone(); });
+    prefixOps.reserve(prefixLen);
+    for (size_t i = 0; i < prefixLen; ++i)
+    {
+        prefixOps.emplace_back(ops[i]->clone());
+    }
 
     // Make a domain for the LUT.  (Will be half-domain for target == 16f.)
     Lut1DOpDataRcPtr newDomain = Lut1DOpData::MakeLookupDomain(in);
@@ -570,6 +580,7 @@ void OptimizeSeparablePrefix(OpRcPtrVec & ops, BitDepth in)
 
     // Insert the new LUT to replace the prefix ops.
     OpRcPtrVec lutOps;
+    lutOps.reserve(1);
     CreateLut1DOp(lutOps, newDomain, TRANSFORM_DIR_FORWARD);
     FinalizeOps(lutOps);
 
@@ -588,10 +599,8 @@ void OptimizeSeparablePrefix(OpRcPtrVec & ops, BitDepth in)
     else if (numNewOps > prefixLen)
     {
         ops.insert(ops.begin() + prefixLen, 
-                    lutOps.begin() + prefixLen, 
-                    lutOps.end());
-                   // TODO if we were compliant std::make_move_iterator(lutOps.begin() + prefixLen), 
-                   // std::make_move_iterator(lutOps.end()));
+                   std::make_move_iterator(lutOps.begin() + prefixLen), 
+                   std::make_move_iterator(lutOps.end()));
     }
 }
 
