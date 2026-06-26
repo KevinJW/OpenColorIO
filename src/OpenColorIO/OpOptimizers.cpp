@@ -6,6 +6,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include <OpenColorIO/OpenColorIO.h>
 
@@ -208,8 +209,7 @@ size_t ReplaceIdentityOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
 
     for (auto & op : opVec)
     {
-        ConstOpRcPtr constOp = op; // const hackery to be able call getType() vie const member function
-        const auto type = constOp->data()->getType();
+        const auto type = std::as_const(*op).data()->getType();
         if (type != OpData::RangeType && // Do not replace a range identity.
             ((type == OpData::GammaType && optIdGamma) ||
                 (type != OpData::GammaType && optIdentity)) &&
@@ -403,8 +403,7 @@ size_t ReplaceInverseLuts(OpRcPtrVec & opVec, OptimizationFlags oFlags)
 
     for (auto & op : opVec)
     {
-        ConstOpRcPtr constOp = op;
-        auto opData = constOp->data();
+        auto opData = std::as_const(*op).data();
         const auto type = opData->getType();
         if (type == OpData::Lut1DType)
         {
@@ -439,8 +438,7 @@ size_t ReplaceInverseLuts(OpRcPtrVec & opVec, OptimizationFlags oFlags)
 size_t RemoveLeadingClampIdentity(OpRcPtrVec & opVec)
 {
     auto it = std::find_if_not(opVec.begin(), opVec.end(), [](const auto & op) {
-        ConstOpRcPtr constOp = op;
-        auto oData = constOp->data();
+        auto oData = std::as_const(*op).data();
         return oData->getType() == OpData::RangeType && oData->isIdentity();
     });
 
@@ -456,8 +454,7 @@ size_t RemoveTrailingClampIdentity(OpRcPtrVec & opVec)
 {
     // Note the use of reverse iterators
     auto rit = std::find_if_not(opVec.rbegin(), opVec.rend(), [](const auto & op) {
-        ConstOpRcPtr constOp = op;
-        auto oData = constOp->data();
+        auto oData = std::as_const(*op).data();
         return oData->getType() == OpData::RangeType && oData->isIdentity();
     });
 
@@ -497,8 +494,7 @@ size_t FindSeparablePrefix(const OpRcPtrVec & ops)
     // (If it is an inverse 1D LUT, proceed since we want to replace it with a 1D LUT.)
     if (prefixLen == 1)
     {
-        ConstOpRcPtr constOp0 = ops[0];
-        auto opData = constOp0->data();
+        auto opData = std::as_const(*ops[0]).data();
         if (opData->getType() == OpData::Lut1DType)
         {
             auto lutData = OCIO_DYNAMIC_POINTER_CAST<const Lut1DOpData>(opData);
@@ -519,8 +515,7 @@ size_t FindSeparablePrefix(const OpRcPtrVec & ops)
             throw Exception("Non-separable op.");
         }
 
-        ConstOpRcPtr constOp = op;
-        const auto type = constOp->data()->getType();
+        const auto type = std::as_const(*op).data()->getType();
         
         // Potentially separable, but inexpensive ops are not counted.
         // TODO: Perhaps a LUT is faster once the conversion to float is considered?
