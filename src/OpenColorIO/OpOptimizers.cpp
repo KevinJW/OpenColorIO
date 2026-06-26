@@ -580,23 +580,19 @@ void OptimizeSeparablePrefix(OpRcPtrVec & ops, BitDepth in)
     FinalizeOps(lutOps);
 
     const size_t numNewOps = lutOps.size();
-    if (numNewOps <= prefixLen)
+    const size_t elementsToOverwrite = std::min(numNewOps, static_cast<size_t>(prefixLen));
+
+    for (size_t i = 0; i < elementsToOverwrite; ++i)
     {
-        for (size_t i = 0; i < numNewOps; ++i)
-        {
-            ops[i] = std::move(lutOps[i]);
-        }
-        if (numNewOps < prefixLen)
-        {
-            ops.erase(ops.begin() + numNewOps, ops.begin() + prefixLen);
-        }
+        ops[i] = std::move(lutOps[i]);
     }
-    else
+
+    if (numNewOps < prefixLen)
     {
-        for (size_t i = 0; i < prefixLen; ++i)
-        {
-            ops[i] = std::move(lutOps[i]);
-        }
+        ops.erase(ops.begin() + numNewOps, ops.begin() + prefixLen);
+    }
+    else if (numNewOps > prefixLen)
+    {
         ops.insert(ops.begin() + prefixLen, 
                     lutOps.begin() + prefixLen, 
                     lutOps.end());
