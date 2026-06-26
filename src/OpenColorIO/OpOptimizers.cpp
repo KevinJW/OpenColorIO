@@ -73,22 +73,22 @@ bool IsCombineEnabled(OpData::Type type, OptimizationFlags flags)
 
 constexpr int MAX_OPTIMIZATION_PASSES = 80;
 
-int RemoveNoOpTypes(OpRcPtrVec & opVec, [[maybe_unused]] OptimizationFlags flags)
+size_t RemoveNoOpTypes(OpRcPtrVec & opVec, [[maybe_unused]] OptimizationFlags flags)
 {
     // TODO: with c++20 could use std::erase_if ?
     auto newEnd = std::remove_if(opVec.begin(), opVec.end(), [](const auto & o) {
         return o->isNoOpType();
     });
     
-    int count = static_cast<int>(std::distance(newEnd, opVec.end()));
+    size_t count = std::distance(newEnd, opVec.end());
     opVec.erase(newEnd, opVec.end());
     return count;
 }
 
 // Ops are preserved, dynamic properties are made non-dynamic.
-int RemoveDynamicProperties(OpRcPtrVec & opVec, OptimizationFlags oFlags)
+size_t RemoveDynamicProperties(OpRcPtrVec & opVec, OptimizationFlags oFlags)
 {
-    int count = 0;
+    size_t count = 0;
     const auto removeDynamic = HasFlag(oFlags, OPTIMIZATION_NO_DYNAMIC_PROPERTIES);
     if (!removeDynamic)
     {
@@ -108,7 +108,7 @@ int RemoveDynamicProperties(OpRcPtrVec & opVec, OptimizationFlags oFlags)
     return count;
 }
 
-int RemoveNoOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
+size_t RemoveNoOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
 {
     const bool optimizeIdentity = HasFlag(oFlags, OPTIMIZATION_IDENTITY);
     if (!optimizeIdentity)
@@ -122,7 +122,7 @@ int RemoveNoOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
         return op->isNoOp();
     });
 
-    int count = static_cast<int>(std::distance(newEnd, opVec.end()));
+    size_t count = std::distance(newEnd, opVec.end());
     opVec.erase(newEnd, opVec.end());
     return count;
 }
@@ -138,23 +138,23 @@ void FinalizeOps(OpRcPtrVec & opVec)
 
 // Some rather complex ops can get replaced based on their data by simpler ops.
 // For instance CDL that does not use power will get replaced.
-int ReplaceOps(OpRcPtrVec & opVec, [[maybe_unused]] OptimizationFlags oFlags)
+size_t ReplaceOps(OpRcPtrVec & opVec, [[maybe_unused]] OptimizationFlags oFlags)
 {
-    int count = 0;
+    size_t count = 0;
     const bool replaceOps = HasFlag(oFlags, OPTIMIZATION_SIMPLIFY_OPS);
     if (!replaceOps)
     {
         return count;
     }
 
-    int firstindex = 0; // this must be a signed int
+    size_t firstindex = 0;
 
     // Note this erase/insert is potentially O(N^2), an alternative is to build a newOpVec at least as big as the current
     // and as we pass through and append the replacement or push_back the original.
     // If the count is non-zero then std::move the newOpVec to OpVec
     OpRcPtrVec tmpops;
 
-    while (firstindex < static_cast<int>(opVec.size()))
+    while (firstindex < opVec.size())
     {
         tmpops.clear();
         ConstOpRcPtr op = opVec[firstindex];
@@ -179,7 +179,7 @@ int ReplaceOps(OpRcPtrVec & opVec, [[maybe_unused]] OptimizationFlags oFlags)
 
             // Advance index by the number of inserted elements to skip re-evaluating them,
             // or add 0 if you want to recursively simplify newly inserted ops.
-            firstindex += static_cast<int>(numNewOps);
+            firstindex += numNewOps;
             ++count;
         }
         else
@@ -192,9 +192,9 @@ int ReplaceOps(OpRcPtrVec & opVec, [[maybe_unused]] OptimizationFlags oFlags)
     return count;
 }
 
-int ReplaceIdentityOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
+size_t ReplaceIdentityOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
 {
-    int count = 0;
+    size_t count = 0;
 
     // Remove any identity ops (other than gamma).
     const bool optIdentity = HasFlag(oFlags, OPTIMIZATION_IDENTITY);
@@ -225,13 +225,13 @@ int ReplaceIdentityOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
     return count;
 }
 
-int RemoveInverseOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
+size_t RemoveInverseOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
 {
-    int count      = 0;
-    int writeIdx   = 0;
-    const int numOps = static_cast<int>(opVec.size());
+    size_t count      = 0;
+    size_t writeIdx   = 0;
+    const size_t numOps = opVec.size();
 
-    for (int readIdx = 0; readIdx < numOps; ++readIdx)
+    for (size_t readIdx = 0; readIdx < numOps; ++readIdx)
     {
         auto & op = opVec[readIdx];
 
@@ -321,7 +321,7 @@ int RemoveInverseOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
     return count;
 }
 
-int CombineOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
+size_t CombineOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
 {
     auto it = std::adjacent_find(opVec.begin(), opVec.end(),
         [oFlags](const auto & ptr1, const auto & ptr2) {
@@ -390,9 +390,9 @@ int CombineOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
 // LUT is used and so this is quite accurate even for scene-linear values, but for Lut3D the baked
 // version is more of an approximation. The default optimization level uses the FAST method since
 // it is the only one available on both CPU and GPU.
-int ReplaceInverseLuts(OpRcPtrVec & opVec, OptimizationFlags oFlags)
+size_t ReplaceInverseLuts(OpRcPtrVec & opVec, OptimizationFlags oFlags)
 {
-    int count = 0;
+    size_t count = 0;
     const bool fastLut = HasFlag(oFlags, OPTIMIZATION_LUT_INV_FAST);
     if (!fastLut)
     {
@@ -434,7 +434,7 @@ int ReplaceInverseLuts(OpRcPtrVec & opVec, OptimizationFlags oFlags)
     return count;
 }
 
-int RemoveLeadingClampIdentity(OpRcPtrVec & opVec)
+size_t RemoveLeadingClampIdentity(OpRcPtrVec & opVec)
 {
     auto it = std::find_if_not(opVec.begin(), opVec.end(), [](const auto & op) {
         ConstOpRcPtr constOp = op;
@@ -442,7 +442,7 @@ int RemoveLeadingClampIdentity(OpRcPtrVec & opVec)
         return oData->getType() == OpData::RangeType && oData->isIdentity();
     });
 
-    int count = static_cast<int>(std::distance(opVec.begin(), it));
+    size_t count = std::distance(opVec.begin(), it);
     if (count > 0)
     {
         opVec.erase(opVec.begin(), it);
@@ -450,7 +450,7 @@ int RemoveLeadingClampIdentity(OpRcPtrVec & opVec)
     return count;
 }
 
-int RemoveTrailingClampIdentity(OpRcPtrVec & opVec)
+size_t RemoveTrailingClampIdentity(OpRcPtrVec & opVec)
 {
     // Note the use of reverse iterators
     auto rit = std::find_if_not(opVec.rbegin(), opVec.rend(), [](const auto & op) {
@@ -459,7 +459,7 @@ int RemoveTrailingClampIdentity(OpRcPtrVec & opVec)
         return oData->getType() == OpData::RangeType && oData->isIdentity();
     });
 
-    int count = static_cast<int>(std::distance(opVec.rbegin(), rit));
+    size_t count = std::distance(opVec.rbegin(), rit);
     if (count > 0)
     {
         opVec.erase(rit.base(), opVec.end());
@@ -477,7 +477,7 @@ int RemoveTrailingClampIdentity(OpRcPtrVec & opVec)
 // pixels.  Rather than convert to float and apply the power function on each
 // pixel, it's better to build a 1024 entry LUT and just do a look-up.
 //
-unsigned FindSeparablePrefix(const OpRcPtrVec & ops)
+size_t FindSeparablePrefix(const OpRcPtrVec & ops)
 {
     // Loop over the ops until we get to one that cannot be combined.
     //
@@ -488,7 +488,7 @@ unsigned FindSeparablePrefix(const OpRcPtrVec & ops)
         return op->hasChannelCrosstalk() || op->isDynamic();
     });
 
-    unsigned prefixLen = static_cast<unsigned>(std::distance(ops.begin(), it));
+    size_t prefixLen = std::distance(ops.begin(), it);
 
     // If the only op is a 1D LUT, there is actually nothing to optimize
     // so set the length to 0.  (This also avoids an infinite loop.)
@@ -556,7 +556,7 @@ void OptimizeSeparablePrefix(OpRcPtrVec & ops, BitDepth in)
         return;
     }
 
-    const unsigned prefixLen = FindSeparablePrefix(ops);
+    const auto prefixLen = FindSeparablePrefix(ops);
     if (prefixLen == 0)
     {
         return; // Nothing to do.
@@ -579,8 +579,8 @@ void OptimizeSeparablePrefix(OpRcPtrVec & ops, BitDepth in)
     CreateLut1DOp(lutOps, newDomain, TRANSFORM_DIR_FORWARD);
     FinalizeOps(lutOps);
 
-    const size_t numNewOps = lutOps.size();
-    const size_t elementsToOverwrite = std::min(numNewOps, static_cast<size_t>(prefixLen));
+    const auto numNewOps = lutOps.size();
+    const auto elementsToOverwrite = std::min(numNewOps, prefixLen);
 
     for (size_t i = 0; i < elementsToOverwrite; ++i)
     {
@@ -601,9 +601,9 @@ void OptimizeSeparablePrefix(OpRcPtrVec & ops, BitDepth in)
     }
 }
 
-int PerformOptimisation(int (*Operation)(OpRcPtrVec &, OptimizationFlags), OpRcPtrVec & opVec, OptimizationFlags oFlags, bool debugLoggingEnabled, std::string_view operationName)
+size_t PerformOptimisation(size_t (*Operation)(OpRcPtrVec &, OptimizationFlags), OpRcPtrVec & opVec, OptimizationFlags oFlags, bool debugLoggingEnabled, std::string_view operationName)
 {
-    const int ops_removed = Operation(opVec, oFlags);
+    const size_t ops_removed = Operation(opVec, oFlags);
     if (debugLoggingEnabled)
     {
         std::ostringstream os;
@@ -642,28 +642,27 @@ void OpRcPtrVec::optimize(OptimizationFlags oFlags)
     const bool debugLoggingEnabled = IsDebugLoggingEnabled();
     if (debugLoggingEnabled)
     {
-        std::ostringstream oss;
-        oss << "\n**\nOptimizing Op Vec...\n" << SerializeOpVec(*this, 4);
-        LogDebug(oss.str());
+        const std::string message =  "\n**\nOptimizing Op Vec...\n" + SerializeOpVec(*this, 4);
+        LogDebug(message);
     }
 
     const auto originalSize = size();
-    int total_noops         = 0;
-    int total_replacedops   = 0;
-    int total_identityops   = 0;
-    int total_inverseops    = 0;
-    int total_combines      = 0;
-    int total_inverses      = 0;
-    int passes              = 1;
+    size_t total_noops         = 0;
+    size_t total_replacedops   = 0;
+    size_t total_identityops   = 0;
+    size_t total_inverseops    = 0;
+    size_t total_combines      = 0;
+    size_t total_inverses      = 0;
+    int    passes              = 1;
 
     // NoOpType can be removed (facilitates conversion to a CPU/GPUProcessor).
-    const int total_nooptype = PerformOptimisation(RemoveNoOpTypes, *this, oFlags, debugLoggingEnabled, "RemoveNoOpTypes");
+    const auto total_nooptype = PerformOptimisation(RemoveNoOpTypes, *this, oFlags, debugLoggingEnabled, "RemoveNoOpTypes");
 
     if (oFlags == OPTIMIZATION_NONE)
     {
         if (debugLoggingEnabled)
         {
-            OpRcPtrVec::size_type finalSize = size();
+            const auto finalSize = size();
 
             std::ostringstream os;
             os << "**\nOptimized " << originalSize << "->" << finalSize << ", " << passes << " pass, "
@@ -677,7 +676,7 @@ void OpRcPtrVec::optimize(OptimizationFlags oFlags)
 
     // Keep dynamic ops using their default values. Remove the ability to modify
     // them dynamically.
-    const int total_dynamicOps = PerformOptimisation(RemoveDynamicProperties, *this, oFlags, debugLoggingEnabled, "RemoveDynamicProperties");
+    const auto total_dynamicOps = PerformOptimisation(RemoveDynamicProperties, *this, oFlags, debugLoggingEnabled, "RemoveDynamicProperties");
 
     while (passes <= MAX_OPTIMIZATION_PASSES)
     {
@@ -687,25 +686,25 @@ void OpRcPtrVec::optimize(OptimizationFlags oFlags)
             LogDebug(message);
         }
         // Remove all ops for which isNoOp is true, including identity matrices.
-        const int noops = PerformOptimisation(RemoveNoOps, *this, oFlags, debugLoggingEnabled, "RemoveNoOps");
+        const auto noops = PerformOptimisation(RemoveNoOps, *this, oFlags, debugLoggingEnabled, "RemoveNoOps");
         total_noops += noops;
 
         // Replace all complex ops with simpler ops (e.g., a CDL which only scales with a matrix).
         // Note this might increase the number of ops.
-        const int replacedOps = PerformOptimisation(ReplaceOps, *this, oFlags, debugLoggingEnabled, "ReplaceOps");
+        const auto replacedOps = PerformOptimisation(ReplaceOps, *this, oFlags, debugLoggingEnabled, "ReplaceOps");
         total_replacedops += replacedOps;
 
         // Replace all complex identities with simpler ops (e.g., an identity Lut1D with a range).
-        const int identityops = PerformOptimisation(ReplaceIdentityOps, *this, oFlags, debugLoggingEnabled, "ReplaceIdentityOps");
+        const auto identityops = PerformOptimisation(ReplaceIdentityOps, *this, oFlags, debugLoggingEnabled, "ReplaceIdentityOps");
         total_identityops += identityops;
 
         // Remove all adjacent pairs of ops that are inverses of each other.
-        const int inverseops = PerformOptimisation(RemoveInverseOps, *this, oFlags, debugLoggingEnabled, "RemoveInverseOps");
+        const auto inverseops = PerformOptimisation(RemoveInverseOps, *this, oFlags, debugLoggingEnabled, "RemoveInverseOps");
         total_inverseops += inverseops;
 
         // Combine a pair of ops, for example multiply two adjacent Matrix ops.
         // (Combines at most one pair on each iteration.)
-        const int combines = PerformOptimisation(CombineOps, *this, oFlags, debugLoggingEnabled, "CombineOps");
+        const auto combines = PerformOptimisation(CombineOps, *this, oFlags, debugLoggingEnabled, "CombineOps");
         total_combines += combines;
 
         if (noops + replacedOps + identityops + inverseops + combines == 0)
@@ -713,7 +712,7 @@ void OpRcPtrVec::optimize(OptimizationFlags oFlags)
             // No optimization progress was made, so stop trying.  If requested, replace any
             // inverse LUTs with faster forward LUTs and do another pass to see if more
             // optimization is possible.
-            const int inverses = PerformOptimisation(ReplaceInverseLuts, *this, oFlags, debugLoggingEnabled, "ReplaceInverseLuts");
+            const auto inverses = PerformOptimisation(ReplaceInverseLuts, *this, oFlags, debugLoggingEnabled, "ReplaceInverseLuts");
             total_inverses += inverses;
 
             if (inverses == 0)
@@ -750,7 +749,7 @@ void OpRcPtrVec::optimize(OptimizationFlags oFlags)
 
     if (debugLoggingEnabled)
     {
-        OpRcPtrVec::size_type finalSize = size();
+        const auto finalSize = size();
 
         std::ostringstream os;
         os << "**\nOptimized "
