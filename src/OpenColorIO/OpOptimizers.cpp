@@ -677,12 +677,7 @@ void OpRcPtrVec::optimize(OptimizationFlags oFlags)
 
     // Keep dynamic ops using their default values. Remove the ability to modify
     // them dynamically.
-    const int dynamicOps = RemoveDynamicProperties(*this, oFlags);
-    if (debugLoggingEnabled)
-    {
-        const auto message = "RemoveDynamicProperties - " + std::to_string(dynamicOps) + " removed";
-        LogDebug(message);
-    }
+    const int total_dynamicOps = PerformOptimisation(RemoveDynamicProperties, *this, oFlags, debugLoggingEnabled, "RemoveDynamicProperties");
 
     while (passes <= MAX_OPTIMIZATION_PASSES)
     {
@@ -762,6 +757,7 @@ void OpRcPtrVec::optimize(OptimizationFlags oFlags)
            << originalSize << "->" << finalSize << ", "
            << passes << " passes, "
            << total_nooptype << " no-op types removed, "
+           << total_dynamicOps << " dynamic-ops made static, "
            << total_noops << " no-ops removed, "
            << total_replacedops << " ops replaced, "
            << total_identityops << " identity ops replaced, "
