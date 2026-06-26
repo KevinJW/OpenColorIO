@@ -399,6 +399,8 @@ size_t ReplaceInverseLuts(OpRcPtrVec & opVec, OptimizationFlags oFlags)
         return count;
     }
 
+    OpRcPtrVec tmpops;
+
     for (auto & op : opVec)
     {
         ConstOpRcPtr constOp = op;
@@ -410,7 +412,7 @@ size_t ReplaceInverseLuts(OpRcPtrVec & opVec, OptimizationFlags oFlags)
             if (lutData->getDirection() == TRANSFORM_DIR_INVERSE)
             {
                 auto invLutData = MakeFastLut1DFromInverse(lutData);
-                OpRcPtrVec tmpops;
+                tmpops.clear();
                 CreateLut1DOp(tmpops, invLutData, TRANSFORM_DIR_FORWARD);
                 FinalizeOps(tmpops);
                 op = std::move(tmpops[0]);
@@ -423,7 +425,7 @@ size_t ReplaceInverseLuts(OpRcPtrVec & opVec, OptimizationFlags oFlags)
             if (lutData->getDirection() == TRANSFORM_DIR_INVERSE)
             {
                 auto invLutData = MakeFastLut3DFromInverse(lutData);
-                OpRcPtrVec tmpops;
+                tmpops.clear();
                 CreateLut3DOp(tmpops, invLutData, TRANSFORM_DIR_FORWARD);
                 FinalizeOps(tmpops);
                 op = std::move(tmpops[0]);
