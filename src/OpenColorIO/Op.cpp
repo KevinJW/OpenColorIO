@@ -30,26 +30,6 @@ DynamicPropertyRcPtr OpCPU::getDynamicProperty(DynamicPropertyType /* type */) c
     throw Exception("Op does not implement dynamic property.");
 }
 
-OpData::OpData()
-    :   m_metadata()
-{ }
-
-OpData::OpData(const OpData & rhs)
-    : m_metadata()
-{
-    *this = rhs;
-}
-
-OpData & OpData::operator=(const OpData & rhs)
-{
-    if (this != &rhs)
-    {
-        m_metadata = rhs.m_metadata;
-    }
-
-    return *this;
-}
-
 OpDataRcPtr OpData::getIdentityReplacement() const
 {
     return std::make_shared<MatrixOpData>();
@@ -57,39 +37,6 @@ OpDataRcPtr OpData::getIdentityReplacement() const
 
 void OpData::getSimplerReplacement(OpDataVec & /* ops */) const
 {
-}
-
-bool OpData::equals(const OpData & other) const
-{
-    if (this == &other) return true;
-
-    // Ignore metadata.
-    return getType() == other.getType();
-}
-
-const std::string & OpData::getID() const
-{
-    return m_metadata.getAttributeValueString(METADATA_ID);
-}
-
-void OpData::setID(const std::string & id)
-{
-    return m_metadata.setID(id.c_str());
-}
-
-const std::string & OpData::getName() const
-{
-    return m_metadata.getAttributeValueString(METADATA_NAME);
-}
-
-void OpData::setName(const std::string & name)
-{
-    return m_metadata.setName(name.c_str());
-}
-
-bool operator==(const OpData & lhs, const OpData & rhs)
-{
-    return lhs.equals(rhs);
 }
 
 const char * GetTypeName(OpData::Type type)
@@ -203,28 +150,6 @@ void Op::getSimplerReplacement(OpRcPtrVec & ops) const
     }
 }
 
-OpRcPtrVec::OpRcPtrVec()
-    : m_metadata()
-{
-}
-
-OpRcPtrVec::OpRcPtrVec(const OpRcPtrVec & v)
-    : OpRcPtrVec()
-{
-    *this = v; 
-}
-
-OpRcPtrVec & OpRcPtrVec::operator=(const OpRcPtrVec & v)
-{
-    if(this!=&v)
-    {
-        m_ops = v.m_ops;
-        m_metadata = v.m_metadata;
-    }
-
-    return *this;
-}
-
 OpRcPtrVec & OpRcPtrVec::operator+=(const OpRcPtrVec & v)
 {
     if (this != &v)
@@ -238,30 +163,6 @@ OpRcPtrVec & OpRcPtrVec::operator+=(const OpRcPtrVec & v)
         OpRcPtrVec other = v;
         return operator+=(other);
     }
-}
-
-bool OpRcPtrVec::isNoOp() const noexcept
-{
-    return std::all_of(m_ops.begin(), m_ops.end(),
-                       [](const auto & op) { return op->isNoOp(); });
-}
-
-bool OpRcPtrVec::hasChannelCrosstalk() const noexcept
-{
-    return std::any_of(m_ops.begin(), m_ops.end(),
-                       [](const auto & op) { return op->hasChannelCrosstalk(); });
-}
-
-bool OpRcPtrVec::isDynamic() const noexcept
-{
-    return std::any_of(m_ops.begin(), m_ops.end(),
-                       [](const auto & op) { return op->isDynamic(); });
-}
-
-bool OpRcPtrVec::hasDynamicProperty(DynamicPropertyType type) const noexcept
-{
-    return std::any_of(m_ops.begin(), m_ops.end(),
-                       [type](const auto & op) { return op->hasDynamicProperty(type); });
 }
 
 DynamicPropertyRcPtr OpRcPtrVec::getDynamicProperty(DynamicPropertyType type) const
@@ -313,14 +214,6 @@ OpRcPtrVec OpRcPtrVec::invert() const
     }
 
     return inverted;
-}
-
-void OpRcPtrVec::validate() const
-{
-    for (auto & op : m_ops)
-    {
-        op->validate();
-    }
 }
 
 namespace

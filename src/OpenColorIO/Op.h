@@ -5,6 +5,7 @@
 #ifndef INCLUDED_OCIO_OP_H
 #define INCLUDED_OCIO_OP_H
 
+#include <algorithm>
 #include <vector>
 #include <utility>
 
@@ -118,18 +119,18 @@ public:
     };
 
 public:
-    OpData();
-    OpData(const OpData & rhs);
+    OpData() = default;
+    OpData(const OpData & rhs) : m_metadata(rhs.m_metadata) {}
     OpData(OpData && rhs) = delete;
-    OpData & operator=(const OpData & rhs);
+    OpData & operator=(const OpData & rhs) { if (this != &rhs) { m_metadata = rhs.m_metadata; } return *this; }
     OpData & operator=(OpData && rhs) = delete;
     virtual ~OpData() = default;
 
-    const std::string & getID() const;
-    void setID(const std::string & id);
+    const std::string & getID() const { return m_metadata.getAttributeValueString(METADATA_ID); }
+    void setID(const std::string & id) { m_metadata.setID(id.c_str()); }
 
-    const std::string & getName() const;
-    void setName(const std::string & name);
+    const std::string & getName() const { return m_metadata.getAttributeValueString(METADATA_NAME); }
+    void setName(const std::string & name) { m_metadata.setName(name.c_str()); }
 
     virtual void validate() const = 0;
 
@@ -154,7 +155,7 @@ public:
     // returns true if the op's output does not combine input channels
     virtual bool hasChannelCrosstalk() const = 0;
 
-    virtual bool equals(const OpData & other) const;
+    virtual bool equals(const OpData & other) const { if (this == &other) return true; return getType() == other.getType(); }
 
     // This should yield a string of not unreasonable length.
     virtual std::string getCacheID() const = 0;
@@ -170,7 +171,10 @@ private:
     FormatMetadataImpl m_metadata;
 };
 
-bool operator==(const OpData & lhs, const OpData & rhs);
+inline bool operator==(const OpData & lhs, const OpData & rhs)
+{
+    return lhs.equals(rhs);
+}
 
 const char * GetTypeName(OpData::Type type);
 
@@ -324,11 +328,11 @@ public:
     typedef Type::reference reference;
     typedef Type::const_reference const_reference;
 
-    OpRcPtrVec();
+    OpRcPtrVec() = default;
     ~OpRcPtrVec() {}
 
-    OpRcPtrVec(const OpRcPtrVec & v);
-    OpRcPtrVec & operator=(const OpRcPtrVec & v);
+    OpRcPtrVec(const OpRcPtrVec & v) = default;
+    OpRcPtrVec & operator=(const OpRcPtrVec & v) = default;
     // Note: It copies elements i.e. no clone.
     OpRcPtrVec & operator+=(const OpRcPtrVec & v);
 
@@ -395,11 +399,11 @@ public:
     FormatMetadataImpl & getFormatMetadata() { return m_metadata; }
     const FormatMetadataImpl & getFormatMetadata() const { return m_metadata; }
 
-    bool isNoOp() const noexcept;
-    bool hasChannelCrosstalk() const noexcept;
+    bool isNoOp() const noexcept { return std::all_of(m_ops.begin(), m_ops.end(), [](const auto & op) { return op->isNoOp(); }); }
+    bool hasChannelCrosstalk() const noexcept { return std::any_of(m_ops.begin(), m_ops.end(), [](const auto & op) { return op->hasChannelCrosstalk(); }); }
 
-    bool isDynamic() const noexcept;
-    bool hasDynamicProperty(DynamicPropertyType type) const noexcept;
+    bool isDynamic() const noexcept { return std::any_of(m_ops.begin(), m_ops.end(), [](const auto & op) { return op->isDynamic(); }); }
+    bool hasDynamicProperty(DynamicPropertyType type) const noexcept { return std::any_of(m_ops.begin(), m_ops.end(), [type](const auto & op) { return op->hasDynamicProperty(type); }); }
     DynamicPropertyRcPtr getDynamicProperty(DynamicPropertyType type) const;
     void validateDynamicProperties();
 
@@ -408,7 +412,7 @@ public:
     // Note: The elements are cloned.
     OpRcPtrVec invert() const;
 
-    void validate() const;
+    void validate() const { for (auto & op : m_ops) { op->validate(); } }
 
     std::string getCacheID() const;
 
