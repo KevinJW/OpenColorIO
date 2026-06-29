@@ -128,7 +128,7 @@ size_t RemoveNoOps(OpRcPtrVec & opVec, OptimizationFlags oFlags)
     return count;
 }
 
-void FinalizeOps(OpRcPtrVec & opVec)
+void FinalizeOps(OpRcPtrVec const & opVec)
 {
     for (const auto &op : opVec)
     {

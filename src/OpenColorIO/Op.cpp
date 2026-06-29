@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright Contributors to the OpenColorIO Project.
 
-#include <algorithm>
+#include <memory>
 #include <string>
+#include <ostream>
 #include <sstream>
+#include <utility>
 
 #include <OpenColorIO/OpenColorIO.h>
 
@@ -152,17 +154,16 @@ void Op::getSimplerReplacement(OpRcPtrVec & ops) const
 
 OpRcPtrVec & OpRcPtrVec::operator+=(const OpRcPtrVec & v)
 {
+    // reserve enough space so we can call insert without invalidating the iterators.
+    m_ops.reserve(m_ops.size() + v.m_ops.size());
+    m_ops.insert(end(), v.begin(), v.end());
+
     if (this != &v)
     {
-        m_ops.insert(end(), v.begin(), v.end());
         m_metadata.combine(v.m_metadata);
-        return *this;
     }
-    else
-    {
-        OpRcPtrVec other = v;
-        return operator+=(other);
-    }
+
+    return *this;   
 }
 
 DynamicPropertyRcPtr OpRcPtrVec::getDynamicProperty(DynamicPropertyType type) const
@@ -196,8 +197,8 @@ OpRcPtrVec OpRcPtrVec::invert() const
     OpRcPtrVec inverted;
     inverted.reserve(m_ops.size());
 
-    OpRcPtrVec::const_reverse_iterator iter = m_ops.rbegin();
-    OpRcPtrVec::const_reverse_iterator end  = m_ops.rend();
+    auto iter = m_ops.rbegin();
+    auto end  = m_ops.rend();
     for (; iter!=end; ++iter)
     {
         ConstOpRcPtr op = *iter;
@@ -219,7 +220,7 @@ OpRcPtrVec OpRcPtrVec::invert() const
 namespace
 {
 template<typename T>
-void ValidateDynamicProperty(OpRcPtr op, std::shared_ptr<T> & prop, DynamicPropertyType type)
+void ValidateDynamicProperty(const OpRcPtr& op, std::shared_ptr<T> & prop, DynamicPropertyType type)
 {
     if (op->hasDynamicProperty(type))
     {
@@ -279,7 +280,7 @@ void OpRcPtrVec::validateDynamicProperties()
     DynamicPropertyGradingHueCurveImplRcPtr dpGradingHueCurve;
     DynamicPropertyGradingToneImplRcPtr dpGradingTone;
 
-    for (auto op : m_ops)
+    for (const auto& op : m_ops)
     {
         // Each property can only be there once.
         ValidateDynamicProperty(op, dpExposure, DYNAMIC_PROPERTY_EXPOSURE);

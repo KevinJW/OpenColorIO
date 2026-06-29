@@ -19,10 +19,10 @@ namespace OCIO_NAMESPACE
 {
 
 class OpCPU;
-typedef OCIO_SHARED_PTR<OpCPU> OpCPURcPtr;
-typedef OCIO_SHARED_PTR<const OpCPU> ConstOpCPURcPtr;
-typedef std::vector<OpCPURcPtr> OpCPURcPtrVec;
-typedef std::vector<ConstOpCPURcPtr> ConstOpCPURcPtrVec;
+using OpCPURcPtr         = std::shared_ptr<OpCPU>;
+using ConstOpCPURcPtr    = std::shared_ptr<const OpCPU>;
+using OpCPURcPtrVec      = std::vector<OpCPURcPtr>;
+using ConstOpCPURcPtrVec = std::vector<ConstOpCPURcPtr>;
 
 
 // OpCPU is a helper class to define the CPU pixel processing method signature.
@@ -46,20 +46,20 @@ public:
     // the 1D LUT CPU Op where the finalization depends on input and output bit depths.
     virtual void apply(const void * inImg, void * outImg, long numPixels) const = 0;
 
-    virtual bool isDynamic() const { return false; }
-    virtual bool hasDynamicProperty([[maybe_unused]] DynamicPropertyType type) const { return false; }
-    virtual DynamicPropertyRcPtr getDynamicProperty(DynamicPropertyType type) const;
+    [[nodiscard]] virtual bool isDynamic() const { return false; }
+    [[nodiscard]] virtual bool hasDynamicProperty([[maybe_unused]] DynamicPropertyType type) const { return false; }
+    [[nodiscard]] virtual DynamicPropertyRcPtr getDynamicProperty(DynamicPropertyType type) const;
 };
 
 class OpData;
-typedef OCIO_SHARED_PTR<OpData> OpDataRcPtr;
-typedef OCIO_SHARED_PTR<const OpData> ConstOpDataRcPtr;
-typedef std::vector<OpDataRcPtr> OpDataVec;
-typedef std::vector<ConstOpDataRcPtr> ConstOpDataVec;
+using OpDataRcPtr      = std::shared_ptr<OpData>;
+using ConstOpDataRcPtr = std::shared_ptr<const OpData>;
+using OpDataVec        = std::vector<OpDataRcPtr>;
+using ConstOpDataVec   = std::vector<ConstOpDataRcPtr>;
 
 class Op;
-typedef OCIO_SHARED_PTR<Op> OpRcPtr;
-typedef OCIO_SHARED_PTR<const Op> ConstOpRcPtr;
+using OpRcPtr      = std::shared_ptr<Op>;
+using ConstOpRcPtr = std::shared_ptr<const Op>;
 class OpRcPtrVec;
 
 // The OpData class is a helper class to hold the data part of an Op 
@@ -118,7 +118,6 @@ public:
         NoOpType
     };
 
-public:
     OpData() = default;
     OpData(const OpData & rhs) : m_metadata(rhs.m_metadata) {}
     OpData(OpData && rhs) = delete;
@@ -187,23 +186,23 @@ public:
     Op & operator=(Op && rhs) = delete;
     virtual ~Op() = default;
 
-    virtual OpRcPtr clone() const = 0;
+    [[nodiscard]] virtual OpRcPtr clone() const = 0;
 
     // Something short, and printable.
     // The type of stuff you'd want to see in debugging.
-    virtual std::string getInfo() const = 0;
+    [[nodiscard]] virtual std::string getInfo() const = 0;
 
-    virtual bool isNoOpType() const { return m_data->getType() == OpData::NoOpType; }
+    [[nodiscard]] virtual bool isNoOpType() const { return m_data->getType() == OpData::NoOpType; }
 
     // Is the processing a noop? I.e, does apply do nothing.
     // (Even no-ops may define Allocation though.)
     // This must be implemented in a manner where its valid to
     // call *prior* to optimization.
-    virtual bool isNoOp() const { return m_data->isNoOp(); }
+    [[nodiscard]] virtual bool isNoOp() const { return m_data->isNoOp(); }
 
-    virtual bool isIdentity() const { return m_data->isIdentity(); }
+    [[nodiscard]] virtual bool isIdentity() const { return m_data->isIdentity(); }
 
-    OpRcPtr getIdentityReplacement() const;
+    [[nodiscard]] OpRcPtr getIdentityReplacement() const;
     void getSimplerReplacement(OpRcPtrVec & ops) const;
 
     virtual bool isSameType(ConstOpRcPtr & op) const = 0;
@@ -220,7 +219,7 @@ public:
 
     virtual void combineWith(OpRcPtrVec & ops, ConstOpRcPtr & secondOp) const;
 
-    virtual bool hasChannelCrosstalk() const { return m_data->hasChannelCrosstalk(); }
+    [[nodiscard]] virtual bool hasChannelCrosstalk() const { return m_data->hasChannelCrosstalk(); }
 
     virtual void dumpMetadata(ProcessorMetadataRcPtr & /*metadata*/) const
     { }
@@ -231,7 +230,7 @@ public:
     virtual void finalize() { }
 
     // This should yield a string of not unreasonable length.
-    virtual std::string getCacheID() const = 0;
+    [[nodiscard]] virtual std::string getCacheID() const = 0;
 
     // Render the specified pixels.
     //
@@ -249,14 +248,14 @@ public:
 
 
     // Is this op supported by the legacy shader text generator?
-    virtual bool supportedByLegacyShader() const { return true; }
+    [[nodiscard]] virtual bool supportedByLegacyShader() const { return true; }
 
     // Create & add the gpu shader information needed by the op. Op has to be finalized.
     virtual void extractGpuShaderInfo(GpuShaderCreatorRcPtr & shaderCreator) const = 0;
 
-    virtual bool isDynamic() const;
-    virtual bool hasDynamicProperty(DynamicPropertyType type) const;
-    virtual DynamicPropertyRcPtr getDynamicProperty(DynamicPropertyType type) const;
+    [[nodiscard]] virtual bool isDynamic() const;
+    [[nodiscard]] virtual bool hasDynamicProperty(DynamicPropertyType type) const;
+    [[nodiscard]] virtual DynamicPropertyRcPtr getDynamicProperty(DynamicPropertyType type) const;
     virtual void replaceDynamicProperty(DynamicPropertyType /* type */,
                                         DynamicPropertyDoubleImplRcPtr & /* prop */)
     {
@@ -287,9 +286,9 @@ public:
     virtual void removeDynamicProperties() {}
 
     // On-demand creation of the OpCPU instance. Op has to be finalized.
-    virtual ConstOpCPURcPtr getCPUOp(bool fastLogExpPow) const = 0;
+    [[nodiscard]] virtual ConstOpCPURcPtr getCPUOp(bool fastLogExpPow) const = 0;
 
-    ConstOpDataRcPtr data() const { return std::const_pointer_cast<const OpData>(m_data); }
+    [[nodiscard]] ConstOpDataRcPtr data() const { return std::const_pointer_cast<const OpData>(m_data); }
 
 protected:
     Op() = default;
@@ -311,48 +310,50 @@ std::ostream& operator<< (std::ostream&, const Op&);
 // Note: List only manages shared pointers i.e. it never clones ops.
 class OpRcPtrVec
 {
-    typedef std::vector<OpRcPtr> Type;
+    using Type = std::vector<OpRcPtr>;
     Type m_ops;
     FormatMetadataImpl m_metadata;
 
 public:
-    typedef Type::value_type value_type;
-    typedef Type::size_type size_type;
+    using value_type = Type::value_type;
+    using size_type = Type::size_type;
 
-    typedef Type::iterator iterator;
-    typedef Type::const_iterator const_iterator;
+    using iterator = Type::iterator;
+    using const_iterator = Type::const_iterator;
 
-    typedef Type::reverse_iterator reverse_iterator;
-    typedef Type::const_reverse_iterator const_reverse_iterator;
+    using reverse_iterator = Type::reverse_iterator;
+    using const_reverse_iterator = Type::const_reverse_iterator;
 
-    typedef Type::reference reference;
-    typedef Type::const_reference const_reference;
+    using reference = Type::reference;
+    using const_reference = Type::const_reference;
 
     OpRcPtrVec() = default;
-    ~OpRcPtrVec() {}
+    ~OpRcPtrVec() = default;
 
     OpRcPtrVec(const OpRcPtrVec & v) = default;
+    OpRcPtrVec(OpRcPtrVec && v) noexcept = default;
     OpRcPtrVec & operator=(const OpRcPtrVec & v) = default;
+    OpRcPtrVec & operator=(OpRcPtrVec && v) noexcept = default;
     // Note: It copies elements i.e. no clone.
     OpRcPtrVec & operator+=(const OpRcPtrVec & v);
 
-    size_type size() const { return m_ops.size(); }
-    size_type capacity() const noexcept { return m_ops.capacity(); }
-    size_type max_size() const noexcept { return m_ops.max_size(); }
+    [[nodiscard]] size_type size() const { return m_ops.size(); }
+    [[nodiscard]] size_type capacity() const noexcept { return m_ops.capacity(); }
+    [[nodiscard]] size_type max_size() const noexcept { return m_ops.max_size(); }
 
     iterator begin() noexcept { return m_ops.begin(); }
-    const_iterator begin() const noexcept { return m_ops.begin(); }
-    const_iterator cbegin() const noexcept { return m_ops.cbegin(); }
+    [[nodiscard]] const_iterator begin() const noexcept { return m_ops.begin(); }
+    [[nodiscard]] const_iterator cbegin() const noexcept { return m_ops.cbegin(); }
     iterator end() noexcept { return m_ops.end(); }
-    const_iterator end() const noexcept { return m_ops.end(); }
-    const_iterator cend() const noexcept { return m_ops.cend(); }
+    [[nodiscard]] const_iterator end() const noexcept { return m_ops.end(); }
+    [[nodiscard]] const_iterator cend() const noexcept { return m_ops.cend(); }
 
     reverse_iterator rbegin() noexcept { return m_ops.rbegin(); }
-    const_reverse_iterator rbegin() const noexcept { return m_ops.rbegin(); }
-    const_reverse_iterator crbegin() const noexcept { return m_ops.crbegin(); }
+    [[nodiscard]] const_reverse_iterator rbegin() const noexcept { return m_ops.rbegin(); }
+    [[nodiscard]] const_reverse_iterator crbegin() const noexcept { return m_ops.crbegin(); }
     reverse_iterator rend() noexcept { return m_ops.rend(); }
-    const_reverse_iterator rend() const noexcept { return m_ops.rend(); }
-    const_reverse_iterator crend() const noexcept { return m_ops.crend(); }
+    [[nodiscard]] const_reverse_iterator rend() const noexcept { return m_ops.rend(); }
+    [[nodiscard]] const_reverse_iterator crend() const noexcept { return m_ops.crend(); }
 
     const OpRcPtr & operator[](size_type idx) const { return m_ops[idx]; }
     OpRcPtr & operator[](size_type idx) { return m_ops[idx]; }
@@ -375,7 +376,7 @@ public:
     }
 
     void clear() noexcept { m_ops.clear(); }
-    bool empty() const noexcept { return m_ops.empty(); }
+    [[nodiscard]] bool empty() const noexcept { return m_ops.empty(); }
 
     void reserve(size_type n) { m_ops.reserve(n); }
     void shrink_to_fit() { m_ops.shrink_to_fit(); }
@@ -391,30 +392,30 @@ public:
         return m_ops.emplace_back(std::forward<Args>(args)...);
     }
 
-    const_reference back() const { return m_ops.back(); }
-    const_reference front() const { return m_ops.front(); }
+    [[nodiscard]] const_reference back() const { return m_ops.back(); }
+    [[nodiscard]] const_reference front() const { return m_ops.front(); }
 
     // The following methods provide helpers for basic Op behaviors.
 
-    FormatMetadataImpl & getFormatMetadata() { return m_metadata; }
-    const FormatMetadataImpl & getFormatMetadata() const { return m_metadata; }
+    [[nodiscard]] FormatMetadataImpl & getFormatMetadata() { return m_metadata; }
+    [[nodiscard]] const FormatMetadataImpl & getFormatMetadata() const { return m_metadata; }
 
-    bool isNoOp() const noexcept { return std::all_of(m_ops.begin(), m_ops.end(), [](const auto & op) { return op->isNoOp(); }); }
-    bool hasChannelCrosstalk() const noexcept { return std::any_of(m_ops.begin(), m_ops.end(), [](const auto & op) { return op->hasChannelCrosstalk(); }); }
+    [[nodiscard]] bool isNoOp() const noexcept { return std::all_of(m_ops.begin(), m_ops.end(), [](const auto & op) { return op->isNoOp(); }); }
+    [[nodiscard]] bool hasChannelCrosstalk() const noexcept { return std::any_of(m_ops.begin(), m_ops.end(), [](const auto & op) { return op->hasChannelCrosstalk(); }); }
 
-    bool isDynamic() const noexcept { return std::any_of(m_ops.begin(), m_ops.end(), [](const auto & op) { return op->isDynamic(); }); }
-    bool hasDynamicProperty(DynamicPropertyType type) const noexcept { return std::any_of(m_ops.begin(), m_ops.end(), [type](const auto & op) { return op->hasDynamicProperty(type); }); }
-    DynamicPropertyRcPtr getDynamicProperty(DynamicPropertyType type) const;
+    [[nodiscard]] bool isDynamic() const noexcept { return std::any_of(m_ops.begin(), m_ops.end(), [](const auto & op) { return op->isDynamic(); }); }
+    [[nodiscard]] bool hasDynamicProperty(DynamicPropertyType type) const noexcept { return std::any_of(m_ops.begin(), m_ops.end(), [type](const auto & op) { return op->hasDynamicProperty(type); }); }
+    [[nodiscard]] DynamicPropertyRcPtr getDynamicProperty(DynamicPropertyType type) const;
     void validateDynamicProperties();
 
-    OpRcPtrVec clone() const;
+    [[nodiscard]] OpRcPtrVec clone() const;
 
     // Note: The elements are cloned.
-    OpRcPtrVec invert() const;
+    [[nodiscard]] OpRcPtrVec invert() const;
 
-    void validate() const { for (auto & op : m_ops) { op->validate(); } }
+    void validate() const { for (const auto & op : m_ops) { op->validate(); } }
 
-    std::string getCacheID() const;
+    [[nodiscard]] std::string getCacheID() const;
 
     // The method validates and finalizes each op.
     void finalize();
